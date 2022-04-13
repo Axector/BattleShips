@@ -166,7 +166,7 @@ void process_client(int id, int socket)
 
 char* msg_decoder(char* msg)
 {
-    char res[100];
+    char res[150];
 
     for (int i = 0; i < strlen(msg); i++) {
         char temp[100];
