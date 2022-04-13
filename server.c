@@ -13,7 +13,8 @@
 #define SHARED_MEMORY_SIZE 1024
 
 char *shared_memory = NULL;
-int *client_count = NULL;
+unsigned char *client_count = NULL;
+unsigned char *client_next_id = NULL;
 int *shared_data = NULL;
 
 void get_shared_memory();
@@ -48,8 +49,9 @@ void get_shared_memory()
         -1,
         0
     );
-    client_count = (int*) shared_memory;
-    shared_data = (int*) (shared_memory + sizeof(int));
+    client_count = (unsigned char*) shared_memory;
+    client_next_id = (unsigned char*) (shared_memory + sizeof(char));
+    shared_data = (int*) (shared_memory + sizeof(char) * 2);
 }
 
 void gameloop()
@@ -109,7 +111,8 @@ void start_network()
             continue;
         }
 
-        int new_client_id = *client_count;
+        int new_client_id = *client_next_id;
+        *client_next_id += 1;
         *client_count += 1;
 
         int cpid = 0;
