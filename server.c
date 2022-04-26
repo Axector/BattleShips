@@ -8,19 +8,35 @@
 #include <string.h>
 #include <sys/mman.h>
 
-#define MAX_CLIENTS 10
+#define MAX_PLAYERS 10
 #define PORT 12345
-#define SHARED_MEMORY_SIZE 1024
+#define SHARED_MEMORY_SIZE 1024 * 1024
+#define MAX_PLAYER_NAME_LEN 32
+#define SERVER_DELTA_TIME 200 // Milliseconds
 
-char *shared_memory = NULL;
-unsigned char *client_count = NULL;
-unsigned char *client_next_id = NULL;
-int *shared_data = NULL;
+// Structure to store player info
+struct Player {
+    unsigned char id;
+    unsigned char team_id;
+    unsigned char is_ready;
+    unsigned char name_len;
+    char name[MAX_PLAYER_NAME_LEN];
+};
+
+char *shared_memory = NULL;             // Stores whole shared data
+unsigned int *game_time = NULL;         // Time passed on server
+unsigned char *player_count = NULL;     // Current number of players
+unsigned char *player_next_id = NULL;   // Next player unique ID
+char *next_team_id = NULL;              // team ID for the next player
+unsigned char *game_state = NULL;       // Current game state
+struct Player *players = NULL;          // Stores all players data
 
 void get_shared_memory();
 void gameloop();
 void start_network();
 void process_client(int id, int socket);
+int addPlayer(char *name);
+struct Player* findPlayerById(int id);
 char* msg_decoder(char* msg);
 
 int main ()
@@ -49,22 +65,24 @@ void get_shared_memory()
         -1,
         0
     );
-    client_count = (unsigned char*) shared_memory;
-    client_next_id = (unsigned char*) (shared_memory + sizeof(char));
-    shared_data = (int*) (shared_memory + sizeof(char) * 2);
+    game_time = (unsigned int*) shared_memory;
+    player_count = (unsigned char*) (shared_memory + sizeof(int));
+    player_next_id = (unsigned char*) (shared_memory + sizeof(int) + sizeof(char));
+    *player_next_id = 1;
+    next_team_id = (char*) (shared_memory + sizeof(int) + sizeof(char) * 2);
+    *next_team_id = 1;
+    game_state = (unsigned char*) (shared_memory + sizeof(int) + sizeof(char) * 3);
+    players = (struct Player*) (shared_memory + sizeof(int) + sizeof(char) * 4);
 }
 
 void gameloop()
 {
-    printf("Starting game loop! (It will run forever - Use Ctrl+C)\n");
-    int i = 0;
+    float time = 0;
     while (1) {
-        for (i = 0; i < *client_count; i++) {
-            shared_data[MAX_CLIENTS+i] += shared_data[i];
-            shared_data[i] = 0;
-        }
-
-        sleep(1);
+        // Calculate server time
+        time += SERVER_DELTA_TIME / 1000;
+        *game_time = (unsigned int) time;
+        usleep(SERVER_DELTA_TIME * 1000);
     }
 }
 
@@ -90,7 +108,7 @@ void start_network()
         exit(EXIT_FAILURE);
     }
 
-    if (listen(server, MAX_CLIENTS) < 0) {
+    if (listen(server, MAX_PLAYERS) < 0) {
         perror("listen failure");
         exit(EXIT_FAILURE);
     }
@@ -111,9 +129,11 @@ void start_network()
             continue;
         }
 
-        int new_client_id = *client_next_id;
-        *client_next_id += 1;
-        *client_count += 1;
+        // Get name from player
+        char name[MAX_PLAYER_NAME_LEN];
+        read(client_socket, name, MAX_PLAYER_NAME_LEN);
+        // Add new player
+        int new_client_id = addPlayer(name);
 
         int cpid = 0;
         cpid = fork();
@@ -127,8 +147,8 @@ void start_network()
             }
             else {
                 wait(NULL);
-                printf("Successfully orphaned client %d\n", new_client_id);
-                *client_count -= 1;
+                printf("%s left the game.\n", findPlayerById(new_client_id)->name);
+                *player_count -= 1;
             }
 
             exit(0);
@@ -141,8 +161,7 @@ void start_network()
 
 void process_client(int id, int socket)
 {
-    printf("Processing client id=%d, socket=%d\t", id, socket);
-    printf("Client count: %d\n", *client_count);
+    printf("%s connected. ID=%d, SOCKET=%d\n", findPlayerById(id)->name, id, socket);
 
     char in[100];
     char out[100];
@@ -162,6 +181,37 @@ void process_client(int id, int socket)
 
         printf("[Server] Sent to Client-%d: %s\n", id, out);
     }
+}
+
+// To add player with a passed name
+int addPlayer(char *name)
+{
+    struct Player* new_player = (players + *player_count);
+    new_player->id = *player_next_id;
+    new_player->team_id = *next_team_id;
+    new_player->is_ready = 0;
+    new_player->name_len = strlen(name);
+    strcpy(new_player->name, name);
+
+    // Update values for the next player
+    *player_next_id += 1;
+    *player_count += 1;
+    *next_team_id = *next_team_id == 1 ? 2 : 1;
+
+    // return player ID
+    return new_player->id;
+}
+
+// To access player by its ID
+struct Player* findPlayerById(int id)
+{
+    for (int i = 0; i < MAX_PLAYERS; i++) {
+        if (players[i].id == id) {
+            return &players[i];
+        }
+    }
+
+    return NULL;
 }
 
 char* msg_decoder(char* msg)
