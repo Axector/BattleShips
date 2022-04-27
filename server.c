@@ -25,6 +25,7 @@ struct Player {
 
 char *shared_memory = NULL;             // Stores whole shared data
 unsigned int *game_time = NULL;         // Time passed on server
+unsigned char *to_exit = NULL;          // Check if server must be stopped
 unsigned char *player_count = NULL;     // Current number of players
 unsigned char *player_next_id = NULL;   // Next player unique ID
 char *next_team_id = NULL;              // team ID for the next player
@@ -66,19 +67,25 @@ void get_shared_memory()
         0
     );
     game_time = (unsigned int*) shared_memory;
-    player_count = (unsigned char*) (shared_memory + sizeof(int));
-    player_next_id = (unsigned char*) (shared_memory + sizeof(int) + sizeof(char));
+    to_exit = (unsigned char*) (shared_memory + sizeof(int));
+    player_count = (unsigned char*) (shared_memory + sizeof(int) + sizeof(char) * 2);
+    player_next_id = (unsigned char*) (shared_memory + sizeof(int) + sizeof(char) * 3);
     *player_next_id = 1;
-    next_team_id = (char*) (shared_memory + sizeof(int) + sizeof(char) * 2);
+    next_team_id = (char*) (shared_memory + sizeof(int) + sizeof(char) * 4);
     *next_team_id = 1;
-    game_state = (unsigned char*) (shared_memory + sizeof(int) + sizeof(char) * 3);
-    players = (struct Player*) (shared_memory + sizeof(int) + sizeof(char) * 4);
+    game_state = (unsigned char*) (shared_memory + sizeof(int) + sizeof(char) * 5);
+    players = (struct Player*) (shared_memory + sizeof(int) + sizeof(char) * 6);
 }
 
 void gameloop()
 {
     float time = 0;
     while (1) {
+        // Stop server gameloop
+        if (*to_exit == 1) {
+            exit(0);
+        }
+
         // Calculate server time
         time += SERVER_DELTA_TIME / 1000;
         *game_time = (unsigned int) time;
@@ -91,6 +98,7 @@ void start_network()
     int server = socket(AF_INET, SOCK_STREAM, 0);
     if (server < 0) {
         perror("Socket failure");
+        *to_exit = 1;
         exit(EXIT_FAILURE);
     }
 
@@ -105,11 +113,13 @@ void start_network()
         sizeof(server_address)
     ) < 0) {
         perror("bind failure");
+        *to_exit = 1;
         exit(EXIT_FAILURE);
     }
 
     if (listen(server, MAX_PLAYERS) < 0) {
         perror("listen failure");
+        *to_exit = 1;
         exit(EXIT_FAILURE);
     }
     printf("Server is listening...\n\n");
