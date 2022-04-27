@@ -1,7 +1,7 @@
 compile: server_compile client_compile
 
 server_compile:
-	gcc server.c -Wall -o server
+	gcc server.c utils.c -Wall -o server
 
 client_compile:
 	gcc client.c -Wall -o client -lglut -lGL -lGLEW

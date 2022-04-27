@@ -7,11 +7,11 @@
 #include <errno.h>
 #include <string.h>
 #include <sys/mman.h>
+#include "utils.h"
 
 #define MAX_PLAYERS 10
 #define PORT 12345
 #define SHARED_MEMORY_SIZE 1024 * 1024
-#define MAX_PLAYER_NAME_LEN 32
 #define SERVER_DELTA_TIME 200 // Milliseconds
 
 // Structure to store player info
@@ -25,6 +25,7 @@ struct Player {
 
 char *shared_memory = NULL;             // Stores whole shared data
 unsigned int *game_time = NULL;         // Time passed on server
+char *is_little_endian = NULL;          // To know if current system is little-endian or not
 char *to_exit = NULL;                   // Check if server must be stopped
 unsigned char *player_count = NULL;     // Current number of players
 unsigned char *player_next_id = NULL;   // Next player unique ID
@@ -76,7 +77,7 @@ void get_shared_memory()
     );
     game_time = (unsigned int*) shared_memory;
     is_little_endian = (char*) (shared_memory + sizeof(int));
-    *is_little_endian = is_little_endian_system();
+    *is_little_endian = isLittleEndianSystem();
     to_exit = (char*) (shared_memory + sizeof(int) + sizeof(char));
     player_count = (unsigned char*) (shared_memory + sizeof(int) + sizeof(char) * 2);
     player_next_id = (unsigned char*) (shared_memory + sizeof(int) + sizeof(char) * 3);
