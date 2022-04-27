@@ -42,8 +42,10 @@ char readPackage(int socket);
 char removeSeparator(char *msg, ssize_t *msg_size);
 void unescapeMsg(char *msg, ssize_t *msg_size);
 uint8_t getPackageType(char *msg);
+uint16_t getPackageContentSize(char *msg);
+uint32_t getPackageNPK(char *msg);
 
-// Package types
+// Packages
 void pkgLabdien(char *msg);
 
 int main ()
@@ -73,14 +75,16 @@ void get_shared_memory()
         0
     );
     game_time = (unsigned int*) shared_memory;
-    to_exit = (char*) (shared_memory + sizeof(int));
-    player_count = (unsigned char*) (shared_memory + sizeof(int) + sizeof(char));
-    player_next_id = (unsigned char*) (shared_memory + sizeof(int) + sizeof(char) * 2);
+    is_little_endian = (char*) (shared_memory + sizeof(int));
+    *is_little_endian = is_little_endian_system();
+    to_exit = (char*) (shared_memory + sizeof(int) + sizeof(char));
+    player_count = (unsigned char*) (shared_memory + sizeof(int) + sizeof(char) * 2);
+    player_next_id = (unsigned char*) (shared_memory + sizeof(int) + sizeof(char) * 3);
     *player_next_id = 1;
-    next_team_id = (char*) (shared_memory + sizeof(int) + sizeof(char) * 3);
+    next_team_id = (char*) (shared_memory + sizeof(int) + sizeof(char) * 4);
     *next_team_id = 1;
-    game_state = (unsigned char*) (shared_memory + sizeof(int) + sizeof(char) * 4);
-    players = (struct Player*) (shared_memory + sizeof(int) + sizeof(char) * 5);
+    game_state = (unsigned char*) (shared_memory + sizeof(int) + sizeof(char) * 5);
+    players = (struct Player*) (shared_memory + sizeof(int) + sizeof(char) * 6);
 }
 
 void gameloop()
@@ -251,4 +255,84 @@ char readPackage(int socket)
     }
 
     return 0;
+}
+
+char removeSeparator(char *msg, ssize_t *msg_size)
+{
+    int msg_len = *msg_size;
+
+    if (
+        msg[0] != 0 ||
+        msg[1] != 0 ||
+        msg[msg_len - 1] != 0 ||
+        msg[msg_len - 2] != 0
+    ) {
+        return -1;
+    }
+
+    msg_len -= 4;
+    char no_separator[msg_len];
+
+    for (int i = 0; i < msg_len; i++) {
+        no_separator[i] = msg[i + 2];
+    }
+
+    *msg_size = msg_len;
+    for (int i = 0; i < msg_len; i++) {
+        msg[i] = no_separator[i];
+    }
+
+    return 0;
+}
+
+void unescapeMsg(char *msg, ssize_t *msg_size)
+{
+    char unescaped[*msg_size];
+    int msg_len = *msg_size;
+    int unescaped_it = 0;
+
+    for (int i = 0; i < msg_len; i++) {
+        if (i + 1 < msg_len) {
+            if ((msg[i] == 1 && msg[i + 1] == 1)) {
+                i++;
+                unescaped[unescaped_it++] = 0;
+                continue;
+            }
+            else if ((msg[i] == 1 && msg[i + 1] == 2)) {
+                i++;
+                unescaped[unescaped_it++] = 1;
+                continue;
+            }
+        }
+
+        unescaped[unescaped_it++] = msg[i];
+    }
+
+    *msg_size = unescaped_it;
+    for (int i = 0; i < unescaped_it; i++) {
+        msg[i] = unescaped[i];
+    }
+}
+
+uint8_t getPackageType(char *msg)
+{
+    return *((uint8_t*) (msg + sizeof(uint16_t) + sizeof(uint32_t)));
+}
+
+uint16_t getPackageContentSize(char *msg)
+{
+    uint16_t res = *((uint16_t*) (msg + sizeof(uint32_t)));
+    return (*is_little_endian) ? ntohs(res) : res;
+}
+
+uint32_t getPackageNPK(char *msg)
+{
+    uint32_t res = *((uint32_t*) msg);
+    return (*is_little_endian) ? ntohl(res) : res;
+}
+
+void pkgLabdien(char *msg)
+{
+    char *name = (char*) (msg + sizeof(uint8_t) + sizeof(uint16_t) + sizeof(uint32_t));
+    addPlayer(name);
 }
