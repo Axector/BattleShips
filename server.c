@@ -25,7 +25,7 @@ struct Player {
 
 char *shared_memory = NULL;             // Stores whole shared data
 unsigned int *game_time = NULL;         // Time passed on server
-unsigned char *to_exit = NULL;          // Check if server must be stopped
+char *to_exit = NULL;                   // Check if server must be stopped
 unsigned char *player_count = NULL;     // Current number of players
 unsigned char *player_next_id = NULL;   // Next player unique ID
 char *next_team_id = NULL;              // team ID for the next player
@@ -38,7 +38,13 @@ void start_network();
 void process_client(int id, int socket);
 int addPlayer(char *name);
 struct Player* findPlayerById(int id);
-char* msg_decoder(char* msg);
+char readPackage(int socket);
+char removeSeparator(char *msg, ssize_t *msg_size);
+void unescapeMsg(char *msg, ssize_t *msg_size);
+uint8_t getPackageType(char *msg);
+
+// Package types
+void pkgLabdien(char *msg);
 
 int main ()
 {
@@ -67,14 +73,14 @@ void get_shared_memory()
         0
     );
     game_time = (unsigned int*) shared_memory;
-    to_exit = (unsigned char*) (shared_memory + sizeof(int));
-    player_count = (unsigned char*) (shared_memory + sizeof(int) + sizeof(char) * 2);
-    player_next_id = (unsigned char*) (shared_memory + sizeof(int) + sizeof(char) * 3);
+    to_exit = (char*) (shared_memory + sizeof(int));
+    player_count = (unsigned char*) (shared_memory + sizeof(int) + sizeof(char));
+    player_next_id = (unsigned char*) (shared_memory + sizeof(int) + sizeof(char) * 2);
     *player_next_id = 1;
-    next_team_id = (char*) (shared_memory + sizeof(int) + sizeof(char) * 4);
+    next_team_id = (char*) (shared_memory + sizeof(int) + sizeof(char) * 3);
     *next_team_id = 1;
-    game_state = (unsigned char*) (shared_memory + sizeof(int) + sizeof(char) * 5);
-    players = (struct Player*) (shared_memory + sizeof(int) + sizeof(char) * 6);
+    game_state = (unsigned char*) (shared_memory + sizeof(int) + sizeof(char) * 4);
+    players = (struct Player*) (shared_memory + sizeof(int) + sizeof(char) * 5);
 }
 
 void gameloop()
@@ -139,11 +145,12 @@ void start_network()
             continue;
         }
 
+        int new_client_id = *player_next_id;
+
         // Get name from player
-        char name[MAX_PLAYER_NAME_LEN];
-        read(client_socket, name, MAX_PLAYER_NAME_LEN);
-        // Add new player
-        int new_client_id = addPlayer(name);
+        if(readPackage(client_socket) == -1) {
+            continue;
+        }
 
         int cpid = 0;
         cpid = fork();
@@ -185,15 +192,11 @@ void process_client(int id, int socket)
         in[nread] = '\0';
 
         printf("[Client-%d] Received: %s\t[%ld]\n", id, in, nread);
-
-        strcpy(out, msg_decoder(in));
         write(socket, in, strlen(in));
-
-        printf("[Server] Sent to Client-%d: %s\n", id, out);
     }
 }
 
-// To add player with a passed name
+// Adds player with a passed name
 int addPlayer(char *name)
 {
     struct Player* new_player = (players + *player_count);
@@ -224,16 +227,28 @@ struct Player* findPlayerById(int id)
     return NULL;
 }
 
-char* msg_decoder(char* msg)
+char readPackage(int socket)
 {
-    char res[150];
+    size_t size = 1024;
+    char input[size];
+    ssize_t nread = read(socket, input, size);
 
-    for (int i = 0; i < strlen(msg); i++) {
-        char temp[100];
-        strcpy(temp, res);
-        sprintf(res, "%s %x", temp, (int)msg[i]);
+    if (nread == -1 || nread == 0) {
+        return -1;
     }
 
-    strcpy(msg, res);
-    return msg;
+    if (removeSeparator(input, &nread) == -1) {
+        return -1;
+    }
+
+    unescapeMsg(input, &nread);
+    uint8_t package_type = getPackageType(input);
+
+    switch (package_type) {
+        case 0:
+            pkgLabdien(input);
+            break;
+    }
+
+    return 0;
 }
