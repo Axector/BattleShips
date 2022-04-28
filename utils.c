@@ -24,16 +24,19 @@ char* preaparePackage(uint32_t npk, uint8_t type, char *content, uint32_t *conte
     };
 
     char *message = malloc(MAX_PACKAGE_SIZE);
+    memset(message, 0, MAX_PACKAGE_SIZE);
     struct CurrentPackage* msg = (struct CurrentPackage*) (message - 2);
     msg->separator = 0;
     msg->npk = (is_little_endian) ? htonl(npk) : npk;
     msg->size = (is_little_endian) ? htonl(*content_size) : *content_size;
     msg->type = type;
-    strcpy(msg->content, content);
+    for (int i = 0; i < *content_size; i++) {
+        msg->content[i] = content[i];
+    }
     msg->checksum = 0;
     msg->separator_end = 0;
 
-    size_t msg_size = (
+    uint32_t msg_size = (
         sizeof(uint16_t) +
         sizeof(uint32_t) +
         sizeof(uint32_t) +
@@ -57,9 +60,9 @@ char* preaparePackage(uint32_t npk, uint8_t type, char *content, uint32_t *conte
     return package;
 }
 
-void escapePackage(char *msg, size_t *msg_size)
+void escapePackage(char *msg, uint32_t *msg_size)
 {
-    size_t msg_len = *msg_size;
+    uint32_t msg_len = *msg_size;
     char escaped_msg[msg_len * 2];
     int escaped_msg_size = 0;
 
@@ -88,9 +91,9 @@ void escapePackage(char *msg, size_t *msg_size)
     }
 }
 
-char removePackageSeparator(char *msg, size_t *msg_size)
+char removePackageSeparator(char *msg, uint32_t *msg_size)
 {
-    int msg_len = *msg_size;
+    uint32_t msg_len = *msg_size;
 
     if (
         msg[0] != 0 ||
@@ -111,9 +114,9 @@ char removePackageSeparator(char *msg, size_t *msg_size)
     return 0;
 }
 
-void unescapePackage(char *msg, size_t *msg_size)
+void unescapePackage(char *msg, uint32_t *msg_size)
 {
-    int msg_len = *msg_size;
+    uint32_t msg_len = *msg_size;
     char unescaped[msg_len];
     int unescaped_len = 0;
 
