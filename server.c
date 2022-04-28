@@ -12,19 +12,10 @@
 #define MAX_PLAYERS 10
 #define PORT 12345
 #define SHARED_MEMORY_SIZE 1024 * 1024
-#define SERVER_DELTA_TIME 200 // Milliseconds
-
-// Structure to store player info
-struct Player {
-    unsigned char id;
-    unsigned char team_id;
-    unsigned char is_ready;
-    unsigned char name_len;
-    char name[MAX_PLAYER_NAME_LEN];
-};
+#define SERVER_DELTA_TIME 250.0f // Milliseconds
 
 char *shared_memory = NULL;             // Stores whole shared data
-unsigned int *game_time = NULL;         // Time passed on server
+uint32_t *server_time = NULL;           // Time passed on server
 char *is_little_endian = NULL;          // To know if current system is little-endian or not
 char *to_exit = NULL;                   // Check if server must be stopped
 unsigned char *player_count = NULL;     // Current number of players
@@ -33,30 +24,27 @@ char *next_team_id = NULL;              // team ID for the next player
 unsigned char *game_state = NULL;       // Current game state
 struct Player *players = NULL;          // Stores all players data
 
-void get_shared_memory();
+void getSharedMemory();
+void setDefaults();
 void gameloop();
-void start_network();
-void process_client(int id, int socket);
-int addPlayer(char *name);
+void startNetwork();
+void processClient(int id, int socket);
+uint16_t addPlayer(char *name);
 struct Player* findPlayerById(int id);
 char readPackage(int socket);
-char removeSeparator(char *msg, ssize_t *msg_size);
-void unescapeMsg(char *msg, ssize_t *msg_size);
-uint8_t getPackageType(char *msg);
-uint16_t getPackageContentSize(char *msg);
-uint32_t getPackageNPK(char *msg);
 
 // Package types
-char pkgLabdien(char *msg);
+char pkgLabdien(char *msg, size_t msg_size);
 
 int main ()
 {
-    get_shared_memory();
+    getSharedMemory();
+    setDefaults();
 
     int pid = 0;
     pid = fork();
     if (pid == 0) {
-        start_network();
+        startNetwork();
     }
     else {
         gameloop();
@@ -65,7 +53,7 @@ int main ()
     return 0;
 }
 
-void get_shared_memory()
+void getSharedMemory()
 {
     shared_memory = mmap(
         NULL,
@@ -75,17 +63,22 @@ void get_shared_memory()
         -1,
         0
     );
-    game_time = (unsigned int*) shared_memory;
-    is_little_endian = (char*) (shared_memory + sizeof(int));
+
+    server_time = (uint32_t*) shared_memory; uint32_t shared_size = sizeof(uint32_t);
+    is_little_endian = (char*) (shared_memory + shared_size); shared_size += sizeof(char);
+    to_exit = (char*) (shared_memory + shared_size); shared_size += sizeof(char);
+    player_count = (unsigned char*) (shared_memory + shared_size); shared_size += sizeof(char);
+    player_next_id = (uint16_t*) (shared_memory + shared_size); shared_size += sizeof(uint16_t);
+    next_team_id = (char*) (shared_memory + shared_size); shared_size += sizeof(char);
+    game_state = (unsigned char*) (shared_memory + shared_size); shared_size += sizeof(char);
+    players = (struct Player*) (shared_memory + shared_size); shared_size += sizeof(struct Player) * MAX_PLAYERS;
+}
+
+void setDefaults()
+{
     *is_little_endian = isLittleEndianSystem();
-    to_exit = (char*) (shared_memory + sizeof(int) + sizeof(char));
-    player_count = (unsigned char*) (shared_memory + sizeof(int) + sizeof(char) * 2);
-    player_next_id = (uint16_t*) (shared_memory + sizeof(int) + sizeof(char) * 3);
     *player_next_id = 1;
-    next_team_id = (char*) (shared_memory + sizeof(int) + sizeof(uint16_t) + sizeof(char) * 3);
     *next_team_id = 1;
-    game_state = (unsigned char*) (shared_memory + sizeof(int) + sizeof(uint16_t) + sizeof(char) * 4);
-    players = (struct Player*) (shared_memory + sizeof(int) + sizeof(uint16_t) + sizeof(char) * 5);
 }
 
 void gameloop()
@@ -99,12 +92,12 @@ void gameloop()
 
         // Calculate server time
         time += SERVER_DELTA_TIME / 1000;
-        *game_time = (unsigned int) time;
+        *server_time = (uint32_t) time;
         usleep(SERVER_DELTA_TIME * 1000);
     }
 }
 
-void start_network()
+void startNetwork()
 {
     int server = socket(AF_INET, SOCK_STREAM, 0);
     if (server < 0) {
@@ -165,7 +158,7 @@ void start_network()
             cpid = fork();
 
             if (cpid == 0) {
-                process_client(new_client_id, client_socket);
+                processClient(new_client_id, client_socket);
             }
             else {
                 wait(NULL);
@@ -181,7 +174,7 @@ void start_network()
     }
 }
 
-void process_client(int id, int socket)
+void processClient(int id, int socket)
 {
     printf("%s connected. ID=%d, SOCKET=%d\n", findPlayerById(id)->name, id, socket);
 
@@ -201,7 +194,7 @@ void process_client(int id, int socket)
 }
 
 // Adds player with a passed name
-int addPlayer(char *name)
+uint16_t addPlayer(char *name)
 {
     if (findPlayerById(*player_next_id) != NULL) {
         return 0;
@@ -236,109 +229,35 @@ struct Player* findPlayerById(int id)
 
 char readPackage(int socket)
 {
-    size_t size = 1024;
-    char input[size];
-    ssize_t nread = read(socket, input, size);
+    char input[MAX_PACKAGE_SIZE];
+    size_t nread = read(socket, input, MAX_PACKAGE_SIZE);
 
     if (nread == -1 || nread == 0) {
         return -1;
     }
 
-    if (removeSeparator(input, &nread) == -1) {
+    if (removePackageSeparator(input, &nread) == -1) {
         return -1;
     }
 
-    unescapeMsg(input, &nread);
-    uint8_t package_type = getPackageType(input);
+    unescapePackage(input, &nread);
 
-    char response = 0;
-    switch (package_type) {
+    if (getPackageChecksum(input, nread) != calculatePackageChecksum(input, nread)) {
+        return -1;
+    }
+
+    switch (getPackageType(input)) {
         case 0:
-            response = pkgLabdien(input);
-            break;
-    }
-
-    return response;
-}
-
-char removeSeparator(char *msg, ssize_t *msg_size)
-{
-    int msg_len = *msg_size;
-
-    if (
-        msg[0] != 0 ||
-        msg[1] != 0 ||
-        msg[msg_len - 1] != 0 ||
-        msg[msg_len - 2] != 0
-    ) {
-        return -1;
-    }
-
-    msg_len -= 4;
-    char no_separator[msg_len];
-
-    for (int i = 0; i < msg_len; i++) {
-        no_separator[i] = msg[i + 2];
-    }
-
-    *msg_size = msg_len;
-    for (int i = 0; i < msg_len; i++) {
-        msg[i] = no_separator[i];
+            return pkgLabdien(input, nread);
     }
 
     return 0;
 }
 
-void unescapeMsg(char *msg, ssize_t *msg_size)
+char pkgLabdien(char *msg, size_t msg_size)
 {
-    char unescaped[*msg_size];
-    int msg_len = *msg_size;
-    int unescaped_it = 0;
-
-    for (int i = 0; i < msg_len; i++) {
-        if (i + 1 < msg_len) {
-            if ((msg[i] == 1 && msg[i + 1] == 1)) {
-                i++;
-                unescaped[unescaped_it++] = 0;
-                continue;
-            }
-            else if ((msg[i] == 1 && msg[i + 1] == 2)) {
-                i++;
-                unescaped[unescaped_it++] = 1;
-                continue;
-            }
-        }
-
-        unescaped[unescaped_it++] = msg[i];
-    }
-
-    *msg_size = unescaped_it;
-    for (int i = 0; i < unescaped_it; i++) {
-        msg[i] = unescaped[i];
-    }
-}
-
-uint8_t getPackageType(char *msg)
-{
-    return *((uint8_t*) (msg + sizeof(uint16_t) + sizeof(uint32_t)));
-}
-
-uint16_t getPackageContentSize(char *msg)
-{
-    uint16_t res = *((uint16_t*) (msg + sizeof(uint32_t)));
-    return (*is_little_endian) ? ntohs(res) : res;
-}
-
-uint32_t getPackageNPK(char *msg)
-{
-    uint32_t res = *((uint32_t*) msg);
-    return (*is_little_endian) ? ntohl(res) : res;
-}
-
-char pkgLabdien(char *msg)
-{
-    char *name = (char*) (msg + sizeof(uint8_t) + sizeof(uint16_t) + sizeof(uint32_t));
-    int id = addPlayer(name);
+    char *name = (char*) (msg + sizeof(uint8_t) + sizeof(uint32_t) + sizeof(uint32_t));
+    uint16_t id = addPlayer(name);
 
     if(id == 0) {
         return -1;
