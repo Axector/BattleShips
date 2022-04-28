@@ -46,7 +46,7 @@ uint8_t getPackageType(char *msg);
 uint16_t getPackageContentSize(char *msg);
 uint32_t getPackageNPK(char *msg);
 
-// Packages
+// Package types
 char pkgLabdien(char *msg);
 
 int main ()
@@ -152,7 +152,7 @@ void start_network()
 
         int new_client_id = *player_next_id;
 
-        // Add new player by read the name from connected client
+        // Read package with player's info
         if(readPackage(client_socket) == -1) {
             continue;
         }
