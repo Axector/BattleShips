@@ -9,8 +9,6 @@
 #include <sys/mman.h>
 #include "utils.h"
 
-#define MAX_PLAYERS 10
-#define PORT 12345
 #define SERVER_DELTA_TIME 500.0f // Milliseconds
 
 char *shared_memory = NULL;             // Stores whole shared data
@@ -30,13 +28,14 @@ void setDefaults();
 void gameloop();
 void startNetwork();
 void processClient(int id, int socket);
-uint16_t addPlayer(char *name);
+uint16_t addPlayer(char *name, uint16_t name_len);
 void removePlayer(uint16_t id);
 struct Player* findPlayerById(int id);
-char readPackage(int socket);
+char* unpackPackage(char *msg, uint32_t msg_size);
+void processPackage(char *msg);
 
 // Package types
-char pkgLabdien(char *msg, size_t msg_size);
+char pkgLabdien(char *msg, uint32_t content_size);    // 0
 
 int main ()
 {
@@ -163,9 +162,17 @@ void startNetwork()
         int new_client_id = *player_next_id;
 
         // Read package with player's info
-        if(readPackage(client_socket) == -1) {
+        char input[MAX_PACKAGE_SIZE];
+        uint32_t nread = read(client_socket, input, MAX_PACKAGE_SIZE);
+        if (nread == -1 || nread == 0) {
             continue;
         }
+
+        char *package = unpackPackage(input, nread);
+        if(package == NULL) {
+            continue;
+        }
+        processPackage(package);
 
         int cpid = 0;
         cpid = fork();
@@ -210,12 +217,18 @@ void processClient(int id, int socket)
         }
 
         if (pid != 0) {
-            char in[MAX_PACKAGE_SIZE];
-            ssize_t nread = read(socket, in, MAX_PACKAGE_SIZE);
+            char input[MAX_PACKAGE_SIZE];
+            uint32_t nread = read(socket, input, MAX_PACKAGE_SIZE);
             if (nread == -1 || nread == 0) {
                 to_exit_client[id] = 1;
                 exit(0);
             }
+
+            char *package = unpackPackage(input, nread);
+            if(package == NULL) {
+                continue;
+            }
+            processPackage(package);
         }
 
         switch (*game_state) {
@@ -238,7 +251,7 @@ void processClient(int id, int socket)
 }
 
 // Adds player with a passed name
-uint16_t addPlayer(char *name)
+uint16_t addPlayer(char *name, uint16_t name_len)
 {
     if (findPlayerById(*player_next_id) != NULL) {
         return 0;
@@ -246,18 +259,20 @@ uint16_t addPlayer(char *name)
 
     struct Player* new_player = players;
     for (int i = 1; new_player->id != 0; i++) {
-        new_player = (players + i);
-
         if (i >= MAX_PLAYERS) {
             return 0;
         }
+
+        new_player = (players + i);
     }
 
     new_player->id = *player_next_id;
     new_player->team_id = *next_team_id;
     new_player->is_ready = 0;
-    new_player->name_len = strlen(name);
-    strcpy(new_player->name, name);
+    new_player->name_len = name_len;
+    for (int i = 0; i < name_len; i++) {
+        new_player->name[i] = name[i];
+    }
 
     // Update values for the next player
     *player_next_id += 1;
@@ -295,37 +310,38 @@ struct Player* findPlayerById(int id)
     return NULL;
 }
 
-char readPackage(int socket)
+char* unpackPackage(char *msg, uint32_t msg_size)
 {
-    char input[MAX_PACKAGE_SIZE];
-    uint32_t nread = read(socket, input, MAX_PACKAGE_SIZE);
-
-    if (nread == -1 || nread == 0) {
-        return -1;
+    if (removePackageSeparator(msg, &msg_size) == -1) {
+        return NULL;
     }
 
-    if (removePackageSeparator(input, &nread) == -1) {
-        return -1;
+    unescapePackage(msg, &msg_size);
+
+    if (getPackageChecksum(msg, msg_size) != calculatePackageChecksum(msg, msg_size)) {
+        return NULL;
     }
 
-    unescapePackage(input, &nread);
-
-    if (getPackageChecksum(input, nread) != calculatePackageChecksum(input, nread)) {
-        return -1;
-    }
-
-    switch (getPackageType(input)) {
-        case 0:
-            return pkgLabdien(input, nread);
-    }
-
-    return 0;
+    return msg;
 }
 
-char pkgLabdien(char *msg, size_t msg_size)
+void processPackage(char *msg)
 {
-    char *name = (char*) (msg + sizeof(uint8_t) + sizeof(uint32_t) + sizeof(uint32_t));
-    uint16_t id = addPlayer(name);
+    switch (getPackageType(msg)) {
+        case 0: {
+            pkgLabdien(msg, getPackageContentSize(msg, *is_little_endian));
+            return;
+        }
+    }
+
+    uint32_t content_size = getPackageContentSize(msg, *is_little_endian);
+    printArray(getPackageContent(msg, content_size), content_size);
+}
+
+char pkgLabdien(char *msg, uint32_t content_size)
+{
+    char *name = getPackageContent(msg, content_size);
+    uint16_t id = addPlayer(name, content_size);
 
     if(id == 0) {
         return -1;

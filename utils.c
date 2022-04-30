@@ -5,6 +5,18 @@
 #include <arpa/inet.h>
 #include "utils.h"
 
+/////////////////////////////////////// TEMP ///////////////////////////////////
+
+void printArray(char *array, uint32_t size)
+{
+    for (uint32_t i = 0; i < size; i++) {
+        printf("%x ", array[i]);
+    }
+    printf("\n");
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
 char isLittleEndianSystem()
 {
     volatile uint32_t i = 0x01234567;
@@ -158,6 +170,15 @@ uint32_t getPackageContentSize(char *msg, char is_little_endian)
 {
     uint32_t res = *((uint32_t*) (msg + sizeof(uint32_t)));
     return (is_little_endian) ? ntohl(res) : res;
+}
+
+char* getPackageContent(char *msg, uint32_t content_size)
+{
+    int msg_beginning = sizeof(uint32_t) * 2 + sizeof(uint8_t);
+    for (int i = 0; i < content_size; i++) {
+        msg[i] = msg[i + msg_beginning];
+    }
+    return msg;
 }
 
 uint8_t calculatePackageChecksum(char *msg, size_t msg_size)
