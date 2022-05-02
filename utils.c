@@ -15,7 +15,7 @@ void printArray(char *array, uint32_t size)
     printf("\n");
 }
 
-////////////////////////////////////////////////////////////////////////////////
+//////////////////////////////////// Utils /////////////////////////////////////
 
 char isLittleEndianSystem()
 {
@@ -23,7 +23,9 @@ char isLittleEndianSystem()
     return (*((uint8_t*)(&i))) == 0x67;
 }
 
-char* preaparePackage(uint32_t npk, uint8_t type, char *content, uint32_t *content_size, uint32_t content_max_size, char is_little_endian)
+////////////////////// Package preparation and unpacking ///////////////////////
+
+char* preparePackage(uint32_t npk, uint8_t type, char *content, uint32_t *content_size, uint32_t content_max_size, char is_little_endian)
 {
     struct CurrentPackage {
         uint16_t separator;
@@ -154,6 +156,28 @@ void unescapePackage(char *msg, uint32_t *msg_size)
         msg[i] = unescaped[i];
     }
 }
+
+char unpackPackage(char *msg, uint32_t msg_size, uint32_t npk, char is_little_endian)
+{
+    if (removePackageSeparator(msg, &msg_size) == -1) {
+        return -1;
+    }
+
+    unescapePackage(msg, &msg_size);
+
+    if (getPackageChecksum(msg, msg_size) != calculatePackageChecksum(msg, msg_size)) {
+        return -1;
+    }
+
+    uint32_t package_npk = getPackageNPK(msg, is_little_endian);
+    if (package_npk != 0 && package_npk <= npk) {
+        return -1;
+    }
+
+    return 0;
+}
+
+/////////////////////////////////////// Package INFO ///////////////////////////////////////
 
 uint32_t getPackageNPK(char *msg, char is_little_endian)
 {

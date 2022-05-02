@@ -7,19 +7,21 @@
 #include <errno.h>
 #include <string.h>
 #include <sys/mman.h>
+#include <stdint.h>
 #include "utils.h"
 
 #define SERVER_DELTA_TIME 500.0f // Milliseconds
 
 char *shared_memory = NULL;             // Stores whole shared data
-char *sendToClient = NULL;              // To send updates to the client each delta time
+char *send_to_client = NULL;              // To send updates to the client each delta time
 uint32_t *server_time = NULL;           // Time passed on server
 char *is_little_endian = NULL;          // To know if current system is little-endian or not
 char *to_exit = NULL;                   // Check if server must be stopped
 unsigned char *to_exit_client = NULL;   // Array needed to close disconnected clients
 unsigned char *player_count = NULL;     // Current number of players
-unsigned char *player_next_id = NULL;   // Next player unique ID
+uint8_t *player_next_id = NULL;         // Next player unique ID
 char *next_team_id = NULL;              // team ID for the next player
+uint32_t *last_package_npk = NULL;      // NPK for packages
 unsigned char *game_state = NULL;       // Current game state
 struct Player *players = NULL;          // Stores all players data
 
@@ -27,15 +29,14 @@ void getSharedMemory();
 void setDefaults();
 void gameloop();
 void startNetwork();
-void processClient(int id, int socket);
-uint16_t addPlayer(char *name, uint16_t name_len);
+void processClient(uint8_t id, int socket);
+void addPlayer(char *name, uint16_t name_len, uint8_t *id, uint8_t *team_id);
 void removePlayer(uint16_t id);
-struct Player* findPlayerById(int id);
-char* unpackPackage(char *msg, uint32_t msg_size);
-void processPackage(char *msg);
+struct Player* findPlayerById(uint8_t id);
+void processPackage(char *msg, int socket);
 
 // Package types
-char pkgLabdien(char *msg, uint32_t content_size);    // 0
+void pkgLabdien(char *msg, uint32_t content_size, int socket);    // 0
 
 int main ()
 {
@@ -76,12 +77,13 @@ void getSharedMemory()
 
     uint32_t shared_size = 0;
     server_time = (uint32_t*) (shared_memory + shared_size); shared_size = sizeof(uint32_t);
-    sendToClient = (char*) (shared_memory + shared_size); shared_size += sizeof(char);
+    send_to_client = (char*) (shared_memory + shared_size); shared_size += sizeof(char);
     is_little_endian = (char*) (shared_memory + shared_size); shared_size += sizeof(char);
     to_exit = (char*) (shared_memory + shared_size); shared_size += sizeof(char);
     player_count = (unsigned char*) (shared_memory + shared_size); shared_size += sizeof(char);
-    player_next_id = (unsigned char*) (shared_memory + shared_size); shared_size += sizeof(char);
+    player_next_id = (uint8_t*) (shared_memory + shared_size); shared_size += sizeof(uint8_t);
     next_team_id = (char*) (shared_memory + shared_size); shared_size += sizeof(char);
+    last_package_npk = (uint32_t*) (shared_memory + shared_size); shared_size += sizeof(uint32_t);
     game_state = (unsigned char*) (shared_memory + shared_size); shared_size += sizeof(char);
     players = (struct Player*) (shared_memory + shared_size); shared_size += sizeof(struct Player) * MAX_PLAYERS;
 }
@@ -91,6 +93,7 @@ void setDefaults()
     *is_little_endian = isLittleEndianSystem();
     *player_next_id = 1;
     *next_team_id = 1;
+    *last_package_npk = 1;
 }
 
 void gameloop()
@@ -102,14 +105,14 @@ void gameloop()
             exit(0);
         }
 
-        *sendToClient = 0;
+        *send_to_client = 0;
 
         // Calculate server time
         time += SERVER_DELTA_TIME / 1000;
         *server_time = (uint32_t) time;
         usleep(SERVER_DELTA_TIME * 1000);
 
-        *sendToClient = 1;
+        *send_to_client = 1;
     }
 }
 
@@ -168,11 +171,10 @@ void startNetwork()
             continue;
         }
 
-        char *package = unpackPackage(input, nread);
-        if(package == NULL) {
+        if(unpackPackage(input, nread, *last_package_npk, *is_little_endian) == -1) {
             continue;
         }
-        processPackage(package);
+        processPackage(input, client_socket);
 
         int cpid = 0;
         cpid = fork();
@@ -197,9 +199,15 @@ void startNetwork()
     }
 }
 
-void processClient(int id, int socket)
+void processClient(uint8_t id, int socket)
 {
-    printf("%s connected. ID=%d, SOCKET=%d\n", findPlayerById(id)->name, id, socket);
+    struct Player *this_player = findPlayerById(id);
+    if (this_player != NULL) {
+        printf("%s connected. ID=%d, teamID=%d\n", this_player->name, id, this_player->team_id);
+    }
+    else {
+        printf("Ghost connected.\n");
+    }
 
     to_exit_client[id] = 0;
 
@@ -212,7 +220,7 @@ void processClient(int id, int socket)
             exit(0);
         }
 
-        if (*sendToClient == 0) {
+        if (*send_to_client == 0) {
             continue;
         }
 
@@ -224,11 +232,10 @@ void processClient(int id, int socket)
                 exit(0);
             }
 
-            char *package = unpackPackage(input, nread);
-            if(package == NULL) {
+            if(unpackPackage(input, nread, *last_package_npk, *is_little_endian) == -1) {
                 continue;
             }
-            processPackage(package);
+            processPackage(input, socket);
         }
 
         switch (*game_state) {
@@ -242,7 +249,8 @@ void processClient(int id, int socket)
                     current_players[i + 1] = *((char*)(players) + i);
                 }
 
-                char *message = preaparePackage(25, 3, current_players, &current_players_len, current_players_len, *is_little_endian);
+                *last_package_npk += 1;
+                char *message = preparePackage(*last_package_npk, 3, current_players, &current_players_len, current_players_len, *is_little_endian);
                 write(socket, message, current_players_len);
                 break;
             }
@@ -251,18 +259,20 @@ void processClient(int id, int socket)
 }
 
 // Adds player with a passed name
-uint16_t addPlayer(char *name, uint16_t name_len)
+void addPlayer(char *name, uint16_t name_len, uint8_t *id, uint8_t *team_id)
 {
     if (findPlayerById(*player_next_id) != NULL) {
-        return 0;
+        return;
+    }
+
+    if (*player_count >= MAX_PLAYERS) {
+        *id = *player_next_id;
+        *player_next_id += 1;
+        return;
     }
 
     struct Player* new_player = players;
     for (int i = 1; new_player->id != 0; i++) {
-        if (i >= MAX_PLAYERS) {
-            return 0;
-        }
-
         new_player = (players + i);
     }
 
@@ -279,13 +289,19 @@ uint16_t addPlayer(char *name, uint16_t name_len)
     *player_count += 1;
     *next_team_id = *next_team_id == 1 ? 2 : 1;
 
-    // return player ID
-    return new_player->id;
+    *id = new_player->id;
+    *team_id = new_player->team_id;
 }
 
 void removePlayer(uint16_t id)
 {
     struct Player* player = findPlayerById(id);
+
+    if (player == NULL) {
+        printf("Ghost left.\n");
+        return;
+    }
+
     printf("%s left the game.\n", player->name);
     *next_team_id = player->team_id;
     *player_count -= 1;
@@ -300,7 +316,7 @@ void removePlayer(uint16_t id)
 }
 
 // To access player by its ID
-struct Player* findPlayerById(int id)
+struct Player* findPlayerById(uint8_t id)
 {
     for (int i = 0; i < MAX_PLAYERS; i++) {
         if (players[i].id == id) {
@@ -310,42 +326,33 @@ struct Player* findPlayerById(int id)
     return NULL;
 }
 
-char* unpackPackage(char *msg, uint32_t msg_size)
+void processPackage(char *msg, int socket)
 {
-    if (removePackageSeparator(msg, &msg_size) == -1) {
-        return NULL;
+    *last_package_npk = getPackageNPK(msg, *is_little_endian);
+    if (*last_package_npk >= UINT32_MAX) {
+        *last_package_npk = 0;
     }
 
-    unescapePackage(msg, &msg_size);
-
-    if (getPackageChecksum(msg, msg_size) != calculatePackageChecksum(msg, msg_size)) {
-        return NULL;
-    }
-
-    return msg;
-}
-
-void processPackage(char *msg)
-{
     switch (getPackageType(msg)) {
         case 0: {
-            pkgLabdien(msg, getPackageContentSize(msg, *is_little_endian));
-            return;
+            pkgLabdien(msg, getPackageContentSize(msg, *is_little_endian), socket);
+            break;
         }
     }
-
-    uint32_t content_size = getPackageContentSize(msg, *is_little_endian);
-    printArray(getPackageContent(msg, content_size), content_size);
 }
 
-char pkgLabdien(char *msg, uint32_t content_size)
+void pkgLabdien(char *msg, uint32_t content_size, int socket)
 {
     char *name = getPackageContent(msg, content_size);
-    uint16_t id = addPlayer(name, content_size);
+    uint8_t player_id = 0;
+    uint8_t player_team_id = 0;
+    addPlayer(name, content_size, &player_id, &player_team_id);
 
-    if(id == 0) {
-        return -1;
-    }
-
-    return id;
+    char playerData[2];
+    playerData[0] = player_id;
+    playerData[1] = player_team_id;
+    uint32_t playerDataLen = 2;
+    *last_package_npk += 1;
+    char *pkgACK = preparePackage(*last_package_npk, 1, playerData, &playerDataLen, playerDataLen, *is_little_endian);
+    write(socket, pkgACK, playerDataLen);
 }
