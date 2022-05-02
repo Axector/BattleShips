@@ -31,7 +31,6 @@ void processClient(int id, int socket);
 uint16_t addPlayer(char *name, uint16_t name_len);
 void removePlayer(uint16_t id);
 struct Player* findPlayerById(int id);
-char* unpackPackage(char *msg, uint32_t msg_size);
 void processPackage(char *msg);
 
 // Package types
@@ -168,11 +167,10 @@ void startNetwork()
             continue;
         }
 
-        char *package = unpackPackage(input, nread);
-        if(package == NULL) {
+        if(unpackPackage(input, nread) == -1) {
             continue;
         }
-        processPackage(package);
+        processPackage(input);
 
         int cpid = 0;
         cpid = fork();
@@ -224,11 +222,10 @@ void processClient(int id, int socket)
                 exit(0);
             }
 
-            char *package = unpackPackage(input, nread);
-            if(package == NULL) {
+            if(unpackPackage(input, nread) == -1) {
                 continue;
             }
-            processPackage(package);
+            processPackage(input);
         }
 
         switch (*game_state) {
@@ -242,7 +239,7 @@ void processClient(int id, int socket)
                     current_players[i + 1] = *((char*)(players) + i);
                 }
 
-                char *message = preaparePackage(25, 3, current_players, &current_players_len, current_players_len, *is_little_endian);
+                char *message = preparePackage(25, 3, current_players, &current_players_len, current_players_len, *is_little_endian);
                 write(socket, message, current_players_len);
                 break;
             }
@@ -310,21 +307,6 @@ struct Player* findPlayerById(int id)
     return NULL;
 }
 
-char* unpackPackage(char *msg, uint32_t msg_size)
-{
-    if (removePackageSeparator(msg, &msg_size) == -1) {
-        return NULL;
-    }
-
-    unescapePackage(msg, &msg_size);
-
-    if (getPackageChecksum(msg, msg_size) != calculatePackageChecksum(msg, msg_size)) {
-        return NULL;
-    }
-
-    return msg;
-}
-
 void processPackage(char *msg)
 {
     switch (getPackageType(msg)) {
@@ -333,9 +315,6 @@ void processPackage(char *msg)
             return;
         }
     }
-
-    uint32_t content_size = getPackageContentSize(msg, *is_little_endian);
-    printArray(getPackageContent(msg, content_size), content_size);
 }
 
 char pkgLabdien(char *msg, uint32_t content_size)

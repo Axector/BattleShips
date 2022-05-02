@@ -24,10 +24,11 @@ void printArray(char *array, uint32_t size);
 
 char isLittleEndianSystem();
 
-char* preaparePackage(uint32_t npk, uint8_t type, char *content, uint32_t *content_size, uint32_t content_max_size, char is_little_endian);
+char* preparePackage(uint32_t npk, uint8_t type, char *content, uint32_t *content_size, uint32_t content_max_size, char is_little_endian);
 void escapePackage(char *msg, uint32_t *msg_size);
 char removePackageSeparator(char *msg, uint32_t *msg_size);
 void unescapePackage(char *msg, uint32_t *msg_size);
+char unpackPackage(char *msg, uint32_t msg_size);
 
 uint32_t getPackageNPK(char *msg, char is_little_endian);
 uint8_t getPackageType(char *msg);
