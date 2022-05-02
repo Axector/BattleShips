@@ -15,7 +15,7 @@ void printArray(char *array, uint32_t size)
     printf("\n");
 }
 
-////////////////////////////////////////////////////////////////////////////////
+//////////////////////////////////// Utils /////////////////////////////////////
 
 char isLittleEndianSystem()
 {
@@ -157,7 +157,7 @@ void unescapePackage(char *msg, uint32_t *msg_size)
     }
 }
 
-char unpackPackage(char *msg, uint32_t msg_size)
+char unpackPackage(char *msg, uint32_t msg_size, uint32_t npk, char is_little_endian)
 {
     if (removePackageSeparator(msg, &msg_size) == -1) {
         return -1;
@@ -166,6 +166,11 @@ char unpackPackage(char *msg, uint32_t msg_size)
     unescapePackage(msg, &msg_size);
 
     if (getPackageChecksum(msg, msg_size) != calculatePackageChecksum(msg, msg_size)) {
+        return -1;
+    }
+
+    uint32_t package_npk = getPackageNPK(msg, is_little_endian);
+    if (package_npk != 0 && package_npk <= npk) {
         return -1;
     }
 

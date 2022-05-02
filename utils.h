@@ -28,7 +28,7 @@ char* preparePackage(uint32_t npk, uint8_t type, char *content, uint32_t *conten
 void escapePackage(char *msg, uint32_t *msg_size);
 char removePackageSeparator(char *msg, uint32_t *msg_size);
 void unescapePackage(char *msg, uint32_t *msg_size);
-char unpackPackage(char *msg, uint32_t msg_size);
+char unpackPackage(char *msg, uint32_t msg_size, uint32_t npk, char is_little_endian);
 
 uint32_t getPackageNPK(char *msg, char is_little_endian);
 uint8_t getPackageType(char *msg);
