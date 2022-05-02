@@ -36,7 +36,8 @@ struct Player* findPlayerById(uint8_t id);
 void processPackage(char *msg, int socket);
 
 // Package types
-void pkgLabdien(char *msg, uint32_t content_size, int socket);    // 0
+void pkgLABDIEN(char *msg, uint32_t content_size, int socket);      // 0
+void pkgREADY(char *msg, uint32_t content_size);                    // 4
 
 int main ()
 {
@@ -335,13 +336,17 @@ void processPackage(char *msg, int socket)
 
     switch (getPackageType(msg)) {
         case 0: {
-            pkgLabdien(msg, getPackageContentSize(msg, *is_little_endian), socket);
+            pkgLABDIEN(msg, getPackageContentSize(msg, *is_little_endian), socket);
+            break;
+        }
+        case 4: {
+            pkgREADY(msg, getPackageContentSize(msg, *is_little_endian));
             break;
         }
     }
 }
 
-void pkgLabdien(char *msg, uint32_t content_size, int socket)
+void pkgLABDIEN(char *msg, uint32_t content_size, int socket)
 {
     char *name = getPackageContent(msg, content_size);
     uint8_t player_id = 0;
@@ -355,4 +360,14 @@ void pkgLabdien(char *msg, uint32_t content_size, int socket)
     *last_package_npk += 1;
     char *pkgACK = preparePackage(*last_package_npk, 1, playerData, &playerDataLen, playerDataLen, *is_little_endian);
     write(socket, pkgACK, playerDataLen);
+}
+
+void pkgREADY(char *msg, uint32_t content_size)
+{
+    char *content = getPackageContent(msg, content_size);
+
+    struct Player *player = findPlayerById(content[0]);
+    player->is_ready = content[1];
+
+    printf("%s %s ready\n", player->name, (player->is_ready == 1) ? "is" : "is not");
 }
