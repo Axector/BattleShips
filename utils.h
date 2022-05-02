@@ -9,7 +9,7 @@
 
 // Structure to store player info
 struct Player {
-    unsigned char id;
+    uint8_t id;
     unsigned char team_id;
     unsigned char is_ready;
     unsigned char name_len;
