@@ -20,9 +20,9 @@ char *to_exit = NULL;                   // Check if server must be stopped
 unsigned char *to_exit_client = NULL;   // Array needed to close disconnected clients
 unsigned char *player_count = NULL;     // Current number of players
 uint8_t *player_next_id = NULL;         // Next player unique ID
-char *next_team_id = NULL;              // team ID for the next player
 uint32_t *last_package_npk = NULL;      // NPK for packages
 unsigned char *game_state = NULL;       // Current game state
+char *is_ready_all = NULL;
 struct Player *players = NULL;          // Stores all players data
 
 void getSharedMemory();
@@ -83,9 +83,9 @@ void getSharedMemory()
     to_exit = (char*) (shared_memory + shared_size); shared_size += sizeof(char);
     player_count = (unsigned char*) (shared_memory + shared_size); shared_size += sizeof(char);
     player_next_id = (uint8_t*) (shared_memory + shared_size); shared_size += sizeof(uint8_t);
-    next_team_id = (char*) (shared_memory + shared_size); shared_size += sizeof(char);
     last_package_npk = (uint32_t*) (shared_memory + shared_size); shared_size += sizeof(uint32_t);
     game_state = (unsigned char*) (shared_memory + shared_size); shared_size += sizeof(char);
+    is_ready_all = (char*) (shared_memory + shared_size); shared_size += sizeof(char);
     players = (struct Player*) (shared_memory + shared_size); shared_size += sizeof(struct Player) * MAX_PLAYERS;
 }
 
@@ -93,13 +93,13 @@ void setDefaults()
 {
     *is_little_endian = isLittleEndianSystem();
     *player_next_id = 1;
-    *next_team_id = 1;
     *last_package_npk = 1;
 }
 
 void gameloop()
 {
     float time = 0;
+    uint32_t timer_time = 0;
     while (1) {
         // Stop server gameloop
         if (*to_exit == 1) {
@@ -114,6 +114,20 @@ void gameloop()
         usleep(SERVER_DELTA_TIME * 1000);
 
         *send_to_client = 1;
+
+        if (*is_ready_all == 1) {
+            if (timer_time >= 6) {
+                *is_ready_all = 0;
+                timer_time = 0;
+                *game_state = 1;
+            }
+            else {
+                timer_time++;
+            }
+        }
+        else if (timer_time > 0 && *is_ready_all == 0) {
+            timer_time = 0;
+        }
     }
 }
 
@@ -237,6 +251,7 @@ void processClient(uint8_t id, int socket)
                 continue;
             }
             processPackage(input, socket);
+            continue;
         }
 
         switch (*game_state) {
@@ -253,6 +268,14 @@ void processClient(uint8_t id, int socket)
                 *last_package_npk += 1;
                 char *message = preparePackage(*last_package_npk, 3, current_players, &current_players_len, current_players_len, *is_little_endian);
                 write(socket, message, current_players_len);
+
+                break;
+            }
+            case 1: {
+                *game_state = 2;
+                break;
+            }
+            case 2: {
                 break;
             }
         }
@@ -278,7 +301,7 @@ void addPlayer(char *name, uint16_t name_len, uint8_t *id, uint8_t *team_id)
     }
 
     new_player->id = *player_next_id;
-    new_player->team_id = *next_team_id;
+    new_player->team_id = (*player_count % 2) ? 2 : 1;
     new_player->is_ready = 0;
     new_player->name_len = name_len;
     for (int i = 0; i < name_len; i++) {
@@ -288,7 +311,6 @@ void addPlayer(char *name, uint16_t name_len, uint8_t *id, uint8_t *team_id)
     // Update values for the next player
     *player_next_id += 1;
     *player_count += 1;
-    *next_team_id = *next_team_id == 1 ? 2 : 1;
 
     *id = new_player->id;
     *team_id = new_player->team_id;
@@ -304,7 +326,6 @@ void removePlayer(uint16_t id)
     }
 
     printf("%s left the game.\n", player->name);
-    *next_team_id = player->team_id;
     *player_count -= 1;
 
     player->id = 0;
@@ -370,4 +391,12 @@ void pkgREADY(char *msg, uint32_t content_size)
     player->is_ready = content[1];
 
     printf("%s %s ready\n", player->name, (player->is_ready == 1) ? "is" : "is not");
+
+    for (int i = 0; i < *player_count; i++) {
+        if (players[i].is_ready == 0) {
+            *is_ready_all = 0;
+            return;
+        }
+    }
+    *is_ready_all = 1;
 }
