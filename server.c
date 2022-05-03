@@ -18,12 +18,13 @@ uint32_t *server_time = NULL;           // Time passed on server
 char *is_little_endian = NULL;          // To know if current system is little-endian or not
 char *to_exit = NULL;                   // Check if server must be stopped
 unsigned char *to_exit_client = NULL;   // Array needed to close disconnected clients
-unsigned char *player_count = NULL;     // Current number of players
+unsigned char *players_count = NULL;     // Current number of players
 uint8_t *player_next_id = NULL;         // Next player unique ID
 uint32_t *last_package_npk = NULL;      // NPK for packages
 unsigned char *game_state = NULL;       // Current game state
 char *is_ready_all = NULL;
-struct Player *players = NULL;          // Stores all players data
+struct LPlayer *players = NULL;          // Stores all players data
+char *battlefield = NULL;
 
 void getSharedMemory();
 void setDefaults();
@@ -32,7 +33,7 @@ void startNetwork();
 void processClient(uint8_t id, int socket);
 void addPlayer(char *name, uint16_t name_len, uint8_t *id, uint8_t *team_id);
 void removePlayer(uint16_t id);
-struct Player* findPlayerById(uint8_t id);
+struct LPlayer* findPlayerById(uint8_t id);
 void processPackage(char *msg, int socket);
 
 // Package types
@@ -81,12 +82,13 @@ void getSharedMemory()
     send_to_client = (char*) (shared_memory + shared_size); shared_size += sizeof(char);
     is_little_endian = (char*) (shared_memory + shared_size); shared_size += sizeof(char);
     to_exit = (char*) (shared_memory + shared_size); shared_size += sizeof(char);
-    player_count = (unsigned char*) (shared_memory + shared_size); shared_size += sizeof(char);
+    players_count = (unsigned char*) (shared_memory + shared_size); shared_size += sizeof(char);
     player_next_id = (uint8_t*) (shared_memory + shared_size); shared_size += sizeof(uint8_t);
     last_package_npk = (uint32_t*) (shared_memory + shared_size); shared_size += sizeof(uint32_t);
     game_state = (unsigned char*) (shared_memory + shared_size); shared_size += sizeof(char);
     is_ready_all = (char*) (shared_memory + shared_size); shared_size += sizeof(char);
-    players = (struct Player*) (shared_memory + shared_size); shared_size += sizeof(struct Player) * MAX_PLAYERS;
+    players = (struct LPlayer*) (shared_memory + shared_size); shared_size += sizeof(struct LPlayer) * MAX_PLAYERS;
+    battlefield = (char*) (shared_memory + shared_size); shared_size += sizeof(char) * BATTLEFIELD_X_MAX * BATTLEFIELD_Y_MAX;
 }
 
 void setDefaults()
@@ -216,7 +218,7 @@ void startNetwork()
 
 void processClient(uint8_t id, int socket)
 {
-    struct Player *this_player = findPlayerById(id);
+    struct LPlayer *this_player = findPlayerById(id);
     if (this_player != NULL) {
         printf("%s connected. ID=%d, teamID=%d\n", this_player->name, id, this_player->team_id);
     }
@@ -257,10 +259,10 @@ void processClient(uint8_t id, int socket)
         switch (*game_state) {
             // LOBBY
             case 0: {
-                uint32_t current_players_len = sizeof(struct Player) * MAX_PLAYERS + sizeof(uint8_t);
+                uint32_t current_players_len = sizeof(struct LPlayer) * MAX_PLAYERS + sizeof(uint8_t);
                 char current_players[current_players_len];
 
-                current_players[0] = *player_count;
+                current_players[0] = *players_count;
                 for (int i = 0; i < current_players_len; i++) {
                     current_players[i + 1] = *((char*)(players) + i);
                 }
@@ -271,10 +273,19 @@ void processClient(uint8_t id, int socket)
 
                 break;
             }
+            // START_SETUP
             case 1: {
+                char msg[2];
+                msg[0] = BATTLEFIELD_X_MAX;
+                msg[1] = BATTLEFIELD_Y_MAX;
+                uint32_t content_size = 2;
+                *last_package_npk += 1;
+                char* pENTER = preparePackage(*last_package_npk, 5, msg, &content_size, content_size, *is_little_endian);
+                write(*server_socket, pENTER, content_size);
                 *game_state = 2;
                 break;
             }
+            // STATE
             case 2: {
                 break;
             }
@@ -289,19 +300,19 @@ void addPlayer(char *name, uint16_t name_len, uint8_t *id, uint8_t *team_id)
         return;
     }
 
-    if (*player_count >= MAX_PLAYERS) {
+    if (*players_count >= MAX_PLAYERS) {
         *id = *player_next_id;
         *player_next_id += 1;
         return;
     }
 
-    struct Player* new_player = players;
+    struct LPlayer* new_player = players;
     for (int i = 1; new_player->id != 0; i++) {
         new_player = (players + i);
     }
 
     new_player->id = *player_next_id;
-    new_player->team_id = (*player_count % 2) ? 2 : 1;
+    new_player->team_id = (*players_count % 2) ? 2 : 1;
     new_player->is_ready = 0;
     new_player->name_len = name_len;
     for (int i = 0; i < name_len; i++) {
@@ -310,7 +321,7 @@ void addPlayer(char *name, uint16_t name_len, uint8_t *id, uint8_t *team_id)
 
     // Update values for the next player
     *player_next_id += 1;
-    *player_count += 1;
+    *players_count += 1;
 
     *id = new_player->id;
     *team_id = new_player->team_id;
@@ -318,7 +329,7 @@ void addPlayer(char *name, uint16_t name_len, uint8_t *id, uint8_t *team_id)
 
 void removePlayer(uint16_t id)
 {
-    struct Player* player = findPlayerById(id);
+    struct LPlayer* player = findPlayerById(id);
 
     if (player == NULL) {
         printf("Ghost left.\n");
@@ -326,7 +337,7 @@ void removePlayer(uint16_t id)
     }
 
     printf("%s left the game.\n", player->name);
-    *player_count -= 1;
+    *players_count -= 1;
 
     player->id = 0;
     player->team_id = 0;
@@ -338,7 +349,7 @@ void removePlayer(uint16_t id)
 }
 
 // To access player by its ID
-struct Player* findPlayerById(uint8_t id)
+struct LPlayer* findPlayerById(uint8_t id)
 {
     for (int i = 0; i < MAX_PLAYERS; i++) {
         if (players[i].id == id) {
@@ -387,12 +398,12 @@ void pkgREADY(char *msg, uint32_t content_size)
 {
     char *content = getPackageContent(msg, content_size);
 
-    struct Player *player = findPlayerById(content[0]);
+    struct LPlayer *player = findPlayerById(content[0]);
     player->is_ready = content[1];
 
     printf("%s %s ready\n", player->name, (player->is_ready == 1) ? "is" : "is not");
 
-    for (int i = 0; i < *player_count; i++) {
+    for (int i = 0; i < *players_count; i++) {
         if (players[i].is_ready == 0) {
             *is_ready_all = 0;
             return;

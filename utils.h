@@ -6,14 +6,33 @@
 #define SHARED_MEMORY_SIZE 1024 * 1024
 #define MAX_PLAYER_NAME_LEN 32
 #define MAX_PLAYERS 10
+#define BATTLEFIELD_X_MAX 256
+#define BATTLEFIELD_Y_MAX 256
 
-// Structure to store player info
+struct LPlayer {
+    uint8_t id;
+    unsigned char team_id;
+    unsigned char is_ready;
+    unsigned char name_len;
+    char name[MAX_PLAYER_NAME_LEN];
+};
+
+struct Ship {
+    uint8_t type;
+    uint8_t x;
+    uint8_t y;
+    uint8_t dir;
+    uint8_t team_id;
+    uint8_t damage;
+};
+
 struct Player {
     uint8_t id;
     unsigned char team_id;
     unsigned char is_ready;
     unsigned char name_len;
     char name[MAX_PLAYER_NAME_LEN];
+    uint8_t active;
 };
 
 /////////////////////////////////////// TEMP ///////////////////////////////////
