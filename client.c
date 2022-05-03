@@ -15,8 +15,9 @@
 char *shared_memory = NULL;
 char *plane = NULL;
 char *battlefield = NULL; //temporary
+char *need_redisplay = NULL;
 uint8_t *player_name_len = NULL;
-char *playerName = NULL; 
+char *playerName = NULL;
 char *nameIsReady = NULL;
 char *to_exit = NULL;
 int *server_socket = NULL;
@@ -27,7 +28,6 @@ uint8_t *this_teamID = NULL;
 uint32_t *last_package_npk = NULL;      // NPK for packages
 uint8_t *players_count = NULL;
 struct Player *players = NULL;
-
 
 void specialKeyboard(int key, int x, int y)
 {
@@ -77,6 +77,8 @@ void keyboard(unsigned char key, int x, int y)
             break;
         }
     }
+
+    *need_redisplay = 1;
 }
 
 void closeFunc()
@@ -85,17 +87,19 @@ void closeFunc()
     exit(0);
 }
 
-void printText(char *text, double x, double y) {
+void printText(char *text, double x, double y)
+{
     glColor3f(0.0f, 0.5f, 0.5f);
-    glRasterPos3f(x, y, 0); 
+    glRasterPos3f(x, y, 0);
     while(*text){
         glutBitmapCharacter(GLUT_BITMAP_TIMES_ROMAN_24, *text++);
     }
     glFlush();
 }
 
-void printConnectedUsers() {
-    for(int i = 0; i < *players_count; i++){       
+void printConnectedUsers()
+{
+    for(int i = 0; i < *players_count; i++){
         glColor3f(1.0, 1.0, 0.0);
         glRasterPos3f(1.0, 9.0-(0.3*i), 0);
         for(int a = 0; a < strlen(players[i].name); a++){
@@ -105,18 +109,20 @@ void printConnectedUsers() {
     }
 }
 
-void inputField() {
+void inputField()
+{
     glClear(GL_COLOR_BUFFER_BIT);
     printText("Enter your name", 4.5, 9);
     glColor3f(0.0f, 0.5f, 0.5f);
-    glRasterPos3f(3, 8.2, 0); 
+    glRasterPos3f(3, 8.2, 0);
     for(int i = 0; i < 32 || playerName[i] != '\0'; i++){
         glutBitmapCharacter(GLUT_BITMAP_TIMES_ROMAN_24, playerName[i]);
     }
     glFlush();
 }
 
-void outlineCube(int x, int y) {
+void outlineCube(int x, int y)
+{
     glColor3f(0.0f, 0.5f, 0.5f);
     glBegin(GL_LINE_LOOP);
         glVertex3f(3.0+(x*0.05), 8.0-(y*0.1), 0.0);
@@ -127,7 +133,8 @@ void outlineCube(int x, int y) {
     glFlush();
 }
 
-void filledCube(int x, int y) {
+void filledCube(int x, int y)
+{
     glColor3f(0.0f, 0.5f, 0.5f);
     glBegin(GL_QUADS);
         glVertex3f(3.0+(x*0.05), 8.0-(y*0.1), 0.0);
@@ -138,7 +145,8 @@ void filledCube(int x, int y) {
     glFlush();
 }
 
-void createPlane() {
+void createPlane()
+{
     glClear(GL_COLOR_BUFFER_BIT);
     printText("Battlefield", 4.5, 9);
     for(int i = 0; i < 4; i++){
@@ -155,8 +163,8 @@ void createPlane() {
     }else if(*plane == 4){
         printText("Quartal 4", 3, 8.2);
     }
-    for(int i = 0; i < 64; i++){
-        for (int a = 0; a < 64; a++){
+    for(int i = 0; i < 32; i++) {
+        for (int a = 0; a < 32; a++){
             if(*plane == 1){
                 if(battlefield[i*256+a] == 1){
                     filledCube(a, i);
@@ -164,19 +172,19 @@ void createPlane() {
                     outlineCube(a, i);
                 }
             }else if(*plane == 2){
-                if(battlefield[(i+64)*256+(a+64)] == 1){
+                if(battlefield[(i+32*(*plane))*256+(a+32*(*plane))] == 1){
                     filledCube(a, i);
                 }else{
                     outlineCube(a, i);
                 }
             }else if(*plane == 3){
-                if(battlefield[(i+128)*256+(a+128)] == 1){
+                if(battlefield[(i+32*(*plane))*256+(a+32*(*plane))] == 1){
                     filledCube(a, i);
                 }else{
                     outlineCube(a, i);
                 }
             }else if(*plane == 4){
-                if(battlefield[(i+192)*256+(a+192)] == 1){
+                if(battlefield[(i+32*(*plane))*256+(a+32*(*plane))] == 1){
                     filledCube(a, i);
                 }else{
                     outlineCube(a, i);
@@ -210,10 +218,10 @@ void glMain(int argc, char *argv[])
     glutSpecialFunc(specialKeyboard);
     glutCloseFunc(closeFunc);
     glutSetOption(GLUT_ACTION_ON_WINDOW_CLOSE, GLUT_ACTION_CONTINUE_EXECUTION);
-    glClearColor(0.0, 0.0, 0.0, 0.0);        
-    glMatrixMode(GL_PROJECTION);              
-    glLoadIdentity();                           
-    glOrtho(0.0, 10.0, 0.0, 10.0, -1.0, 1.0);   
+    glClearColor(0.0, 0.0, 0.0, 0.0);
+    glMatrixMode(GL_PROJECTION);
+    glLoadIdentity();
+    glOrtho(0.0, 10.0, 0.0, 10.0, -1.0, 1.0);
     glutDisplayFunc(display);
 }
 
@@ -226,32 +234,46 @@ void processPackage(char *msg);
 void pkgACK(char *msg, uint32_t content_size);      // 1
 void pkgLOBBY(char *msg, uint32_t content_size);    // 3
 
-
 int main(int argc, char *argv[])
 {
     getSharedMemory();
     glMain(argc, argv);
 
-    while(*nameIsReady == 0){
-        glutMainLoopEvent();
-        glutPostRedisplay();
+    int pid = 0;
+    pid = fork();
+    if (pid != 0) {
+        while (1) {
+            glutMainLoopEvent();
+
+            if (*need_redisplay == 1) {
+                *need_redisplay = 0;
+                glutPostRedisplay();
+            }
+        }
+    }
+
+    while(*nameIsReady == 0) {
         if (*to_exit == 1) {
             exit(0);
         }
     }
 
     *server_socket = clientConnect();
+
     // Check if current system is little-endian
     *is_little_endian = isLittleEndianSystem();
+
     uint32_t content_size = *player_name_len;
     char* pLABDIEN = preparePackage(*last_package_npk, 0, playerName, &content_size, MAX_PLAYER_NAME_LEN, *is_little_endian);
     write(*server_socket, pLABDIEN, content_size);
+
     char input[MAX_PACKAGE_SIZE];
     uint32_t nread = read(*server_socket, input, MAX_PACKAGE_SIZE);
     if(unpackPackage(input, nread, *last_package_npk, *is_little_endian) == -1) {
         exit(0);
     }
     processPackage(input);
+
     gameloop();
     exit(0);
 }
@@ -271,6 +293,7 @@ void getSharedMemory()
     plane = (char*) (shared_memory + shared_size); shared_size += sizeof(char);
     *plane = 1;
     player_name_len = (uint8_t*) (shared_memory + shared_size); shared_size += sizeof(uint8_t);
+    need_redisplay = (char*) (shared_memory + shared_size); shared_size += sizeof(char);
     playerName = (char*) (shared_memory + shared_size); shared_size += sizeof(char) * MAX_PLAYER_NAME_LEN;
     nameIsReady = (char*) (shared_memory + shared_size); shared_size += sizeof(char);
     to_exit = (char*) (shared_memory + shared_size); shared_size += sizeof(char);
@@ -285,19 +308,11 @@ void getSharedMemory()
     battlefield = (char*) (shared_memory + shared_size); shared_size += sizeof(char) * 256 * 256;
 }
 
-
 void gameloop()
 {
     while (1) {
         if (*to_exit == 1) {
             exit(0);
-        }
-        int pid = 0;
-        pid = fork();
-
-        if(pid != 0){
-            glutMainLoopEvent();
-            continue;
         }
 
         char input[MAX_PACKAGE_SIZE];
@@ -326,6 +341,8 @@ void processPackage(char *msg)
             break;
         }
     }
+
+    *need_redisplay = 1;
 }
 
 void pkgACK(char *msg, uint32_t content_size)
