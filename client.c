@@ -180,10 +180,10 @@ void quartalMap()
     for(int y = 0; y < 4;  y++){
         for(int x = 0; x < 4; x++){
             glBegin(GL_LINE_LOOP);
-                glVertex3f(0.5+(x*0.1), 9.6-(y*0.20), 0.0);
-                glVertex3f(0.6+(x*0.1), 9.6-(y*0.20), 0.0);
-                glVertex3f(0.6+(x*0.1), 9.0-(y*0.20), 0.0);
-                glVertex3f(0.5+(x*0.1), 9.0-(y*0.20), 0.0);
+                glVertex3f(0.5+(x*0.1), 9.6-(y*0.2), 0.0);
+                glVertex3f(0.6+(x*0.1), 9.6-(y*0.2), 0.0);
+                glVertex3f(0.6+(x*0.1), 9.4-(y*0.2), 0.0);
+                glVertex3f(0.5+(x*0.1), 9.4-(y*0.2), 0.0);
             glEnd();
             glFlush();
         }
@@ -218,8 +218,8 @@ void display()
     if(*nameIsReady == 0){
         inputField();
     }else{
-        printConnectedUsers("Not Ready", "Ready");
-        //createPlane();
+        //printConnectedUsers("Not Ready", "Ready");
+        createPlane();
     }
     glutSwapBuffers();
 }
@@ -254,6 +254,7 @@ void pkgLOBBY(char *msg, uint32_t content_size);    // 3
 int main(int argc, char *argv[])
 {
     getSharedMemory();
+    *server_socket = clientConnect();
     glMain(argc, argv);
 
     int pid = 0;
@@ -275,7 +276,6 @@ int main(int argc, char *argv[])
         }
     }
 
-    *server_socket = clientConnect();
 
     // Check if current system is little-endian
     *is_little_endian = isLittleEndianSystem();
