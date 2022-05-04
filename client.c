@@ -29,6 +29,16 @@ uint32_t *last_package_npk = NULL;      // NPK for packages
 uint8_t *players_count = NULL;
 struct Player *players = NULL;
 
+struct Player* findPlayerById(uint8_t id)
+{
+    for (int i = 0; i < MAX_PLAYERS; i++) {
+        if (players[i].id == id) {
+            return &players[i];
+        }
+    }
+    return NULL;
+}
+
 void specialKeyboard(int key, int x, int y)
 {
     /*if(!players_count == 0){
@@ -58,22 +68,24 @@ void keyboard(unsigned char key, int x, int y)
                 }
             }
         }
+    }else{
+        if(key == 'r'){
+            char msg[2];
+            msg[0] = *this_ID;
+            msg[1] = (findPlayerById(*this_ID)->is_ready == 1) ? 0 : 1;
+            uint32_t content_size = 2;
+            *last_package_npk += 1;
+            char* pENTER = preparePackage(*last_package_npk, 4, msg, &content_size, content_size, *is_little_endian);
+            write(*server_socket, pENTER, content_size);
+        }
     }
     switch (key) {
-        case '1': {
-            *plane = 1;
-            break;
-        }
-        case '2': {
-            *plane = 2;
-            break;
-        }
-        case '3': {
-            *plane = 3;
-            break;
-        }
-        case '4': {
-            *plane = 4;
+        case 9: {
+            if(*plane != 16){
+                *plane = *plane + 1;
+            }else{
+                *plane = 0;
+            }
             break;
         }
     }
@@ -97,13 +109,24 @@ void printText(char *text, double x, double y)
     glFlush();
 }
 
-void printConnectedUsers()
+void printConnectedUsers(char * not_ready, char* ready)
 {
     for(int i = 0; i < *players_count; i++){
-        glColor3f(1.0, 1.0, 0.0);
+        glColor3f(0.0f, 0.5f, 0.5f);
         glRasterPos3f(1.0, 9.0-(0.3*i), 0);
         for(int a = 0; a < strlen(players[i].name); a++){
             glutBitmapCharacter(GLUT_BITMAP_TIMES_ROMAN_24, players[i].name[a]);
+        }
+
+        glRasterPos3f(7.0, 9.0-(0.3*i), 0);
+        if(players[i].is_ready == 1){
+            for(int a = 0; a < strlen(ready); a++){
+                glutBitmapCharacter(GLUT_BITMAP_TIMES_ROMAN_24, ready[a]);
+            }
+        }else{
+            for(int a = 0; a < strlen(not_ready); a++){
+                glutBitmapCharacter(GLUT_BITMAP_TIMES_ROMAN_24, not_ready[a]);
+            }
         }
         glFlush();
     }
@@ -121,15 +144,21 @@ void inputField()
     glFlush();
 }
 
-void outlineCube(int x, int y)
+void outlineCube()
 {
     glColor3f(0.0f, 0.5f, 0.5f);
-    glBegin(GL_LINE_LOOP);
-        glVertex3f(3.0+(x*0.05), 8.0-(y*0.1), 0.0);
-        glVertex3f(3.5+(x*0.05), 8.0-(y*0.1), 0.0);
-        glVertex3f(3.5+(x*0.05), 7.5-(y*0.1), 0.0);
-        glVertex3f(3.0+(x*0.05), 7.5-(y*0.1), 0.0);
-    glEnd();
+    for(int i = 0; i < 64; i ++){
+        glBegin(GL_LINES);
+            glVertex2f(0.5, 8.5-(0.12*i));
+            glVertex2f(0.0964*64, 8.5-(0.12*i));
+        glEnd();
+    }
+    for(int i = 0; i < 64; i ++){
+        glBegin(GL_LINES);
+            glVertex2f(0.5+(0.09*i), 8.5);
+            glVertex2f(0.5+(0.09*i), 0.94);
+        glEnd();
+    }
     glFlush();
 }
 
@@ -137,58 +166,46 @@ void filledCube(int x, int y)
 {
     glColor3f(0.0f, 0.5f, 0.5f);
     glBegin(GL_QUADS);
-        glVertex3f(3.0+(x*0.05), 8.0-(y*0.1), 0.0);
-        glVertex3f(3.05+(x*0.05), 8.0-(y*0.1), 0.0);
-        glVertex3f(3.05+(x*0.05), 7.9-(y*0.1), 0.0);
-        glVertex3f(3.0+(x*0.05), 7.9-(y*0.1), 0.0);
+        glVertex3f(0.41+(x*0.09), 8.64-(y*0.12), 0.0);
+        glVertex3f(0.5+(x*0.09), 8.64-(y*0.12), 0.0);
+        glVertex3f(0.5+(x*0.09), 8.50-(y*0.12), 0.0);
+        glVertex3f(0.41+(x*0.09), 8.50-(y*0.12), 0.0);
     glEnd();
     glFlush();
+}
+
+void quartalMap()
+{
+    glColor3f(0.0f, 0.5f, 0.5f);
+    for(int y = 0; y < 4;  y++){
+        for(int x = 0; x < 4; x++){
+            glBegin(GL_LINE_LOOP);
+                glVertex3f(0.5+(x*0.1), 9.6-(y*0.20), 0.0);
+                glVertex3f(0.6+(x*0.1), 9.6-(y*0.20), 0.0);
+                glVertex3f(0.6+(x*0.1), 9.0-(y*0.20), 0.0);
+                glVertex3f(0.5+(x*0.1), 9.0-(y*0.20), 0.0);
+            glEnd();
+            glFlush();
+        }
+    }
 }
 
 void createPlane()
 {
     glClear(GL_COLOR_BUFFER_BIT);
-    printText("Battlefield", 4.5, 9);
+    outlineCube();
+    quartalMap();
+    printText("Battlefield", 4.5, 9.5);
     for(int i = 0; i < 4; i++){
-        battlefield[2*256+(i+1)] = 1;
+        battlefield[9*256+(i+1)] = 1;
     }
     battlefield[72*256+92] = 1;
-
-    if(*plane == 1){
-        printText("Quartal 1", 3, 8.2);
-    }else if(*plane == 2){
-        printText("Quartal 2", 3, 8.2);
-    }else if(*plane == 3){
-        printText("Quartal 3", 3, 8.2);
-    }else if(*plane == 4){
-        printText("Quartal 4", 3, 8.2);
-    }
-    for(int i = 0; i < 32; i++) {
-        for (int a = 0; a < 32; a++){
-            if(*plane == 1){
-                if(battlefield[i*256+a] == 1){
-                    filledCube(a, i);
-                }else{
-                    outlineCube(a, i);
-                }
-            }else if(*plane == 2){
-                if(battlefield[(i+32*(*plane))*256+(a+32*(*plane))] == 1){
-                    filledCube(a, i);
-                }else{
-                    outlineCube(a, i);
-                }
-            }else if(*plane == 3){
-                if(battlefield[(i+32*(*plane))*256+(a+32*(*plane))] == 1){
-                    filledCube(a, i);
-                }else{
-                    outlineCube(a, i);
-                }
-            }else if(*plane == 4){
-                if(battlefield[(i+32*(*plane))*256+(a+32*(*plane))] == 1){
-                    filledCube(a, i);
-                }else{
-                    outlineCube(a, i);
-                }
+    battlefield[240*256+243] = 1;
+    
+    for(int i = 0; i < 64; i++) {
+        for (int a = 0; a < 64; a++){
+            if(battlefield[(i+64*(*plane))*256+(a+64*(*plane))] == 1){
+                filledCube(a, i);
             }
         }
     }
@@ -201,8 +218,8 @@ void display()
     if(*nameIsReady == 0){
         inputField();
     }else{
-        //printConnectedUsers();
-        createPlane();
+        printConnectedUsers("Not Ready", "Ready");
+        //createPlane();
     }
     glutSwapBuffers();
 }
@@ -291,7 +308,7 @@ void getSharedMemory()
 
     uint32_t shared_size = 0;
     plane = (char*) (shared_memory + shared_size); shared_size += sizeof(char);
-    *plane = 1;
+    *plane = 0;
     player_name_len = (uint8_t*) (shared_memory + shared_size); shared_size += sizeof(uint8_t);
     need_redisplay = (char*) (shared_memory + shared_size); shared_size += sizeof(char);
     playerName = (char*) (shared_memory + shared_size); shared_size += sizeof(char) * MAX_PLAYER_NAME_LEN;
