@@ -13,31 +13,33 @@
 #define SERVER_DELTA_TIME 500.0f // Milliseconds
 
 char *shared_memory = NULL;             // Stores whole shared data
-char *send_to_client = NULL;              // To send updates to the client each delta time
+char *send_to_client = NULL;            // To send updates to the client each delta time
 uint32_t *server_time = NULL;           // Time passed on server
 char *is_little_endian = NULL;          // To know if current system is little-endian or not
 char *to_exit = NULL;                   // Check if server must be stopped
 unsigned char *to_exit_client = NULL;   // Array needed to close disconnected clients
-unsigned char *player_count = NULL;     // Current number of players
+unsigned char *players_count = NULL;     // Current number of players
 uint8_t *player_next_id = NULL;         // Next player unique ID
 uint32_t *last_package_npk = NULL;      // NPK for packages
 unsigned char *game_state = NULL;       // Current game state
 char *is_ready_all = NULL;
-struct Player *players = NULL;          // Stores all players data
+struct Player *players = NULL;         // Stores all players data
+struct Ship *ships = NULL;
+uint8_t *battlefield = NULL;
 
 void getSharedMemory();
 void setDefaults();
 void gameloop();
 void startNetwork();
 void processClient(uint8_t id, int socket);
-void addPlayer(char *name, uint16_t name_len, uint8_t *id, uint8_t *team_id);
+void addPlayer(uint8_t *name, uint16_t name_len, uint8_t *id, uint8_t *team_id);
 void removePlayer(uint16_t id);
 struct Player* findPlayerById(uint8_t id);
-void processPackage(char *msg, int socket);
+void processPackage(uint8_t *msg, int socket);
 
 // Package types
-void pkgLABDIEN(char *msg, uint32_t content_size, int socket);      // 0
-void pkgREADY(char *msg, uint32_t content_size);                    // 4
+void pkgLABDIEN(uint8_t *msg, uint32_t content_size, int socket);      // 0
+void pkgREADY(uint8_t *msg, uint32_t content_size);                    // 4
 
 int main ()
 {
@@ -81,12 +83,14 @@ void getSharedMemory()
     send_to_client = (char*) (shared_memory + shared_size); shared_size += sizeof(char);
     is_little_endian = (char*) (shared_memory + shared_size); shared_size += sizeof(char);
     to_exit = (char*) (shared_memory + shared_size); shared_size += sizeof(char);
-    player_count = (unsigned char*) (shared_memory + shared_size); shared_size += sizeof(char);
+    players_count = (unsigned char*) (shared_memory + shared_size); shared_size += sizeof(char);
     player_next_id = (uint8_t*) (shared_memory + shared_size); shared_size += sizeof(uint8_t);
     last_package_npk = (uint32_t*) (shared_memory + shared_size); shared_size += sizeof(uint32_t);
     game_state = (unsigned char*) (shared_memory + shared_size); shared_size += sizeof(char);
     is_ready_all = (char*) (shared_memory + shared_size); shared_size += sizeof(char);
     players = (struct Player*) (shared_memory + shared_size); shared_size += sizeof(struct Player) * MAX_PLAYERS;
+    ships = (struct Ship*) (shared_memory + shared_size); shared_size += sizeof(struct Ship) * MAX_SHIPS;
+    battlefield = (uint8_t*) (shared_memory + shared_size); shared_size += sizeof(uint8_t) * BATTLEFIELD_X_MAX * BATTLEFIELD_Y_MAX;
 }
 
 void setDefaults()
@@ -180,7 +184,7 @@ void startNetwork()
         int new_client_id = *player_next_id;
 
         // Read package with player's info
-        char input[MAX_PACKAGE_SIZE];
+        uint8_t input[MAX_PACKAGE_SIZE];
         uint32_t nread = read(client_socket, input, MAX_PACKAGE_SIZE);
         if (nread == -1 || nread == 0) {
             continue;
@@ -240,7 +244,7 @@ void processClient(uint8_t id, int socket)
         }
 
         if (pid != 0) {
-            char input[MAX_PACKAGE_SIZE];
+            uint8_t input[MAX_PACKAGE_SIZE];
             uint32_t nread = read(socket, input, MAX_PACKAGE_SIZE);
             if (nread == -1 || nread == 0) {
                 to_exit_client[id] = 1;
@@ -257,25 +261,69 @@ void processClient(uint8_t id, int socket)
         switch (*game_state) {
             // LOBBY
             case 0: {
-                uint32_t current_players_len = sizeof(struct Player) * MAX_PLAYERS + sizeof(uint8_t);
-                char current_players[current_players_len];
+                uint32_t current_players_len = (sizeof(struct Player) - sizeof(uint8_t)) * MAX_PLAYERS + sizeof(uint8_t);
+                uint8_t current_players[current_players_len];
 
-                current_players[0] = *player_count;
-                for (int i = 0; i < current_players_len; i++) {
-                    current_players[i + 1] = *((char*)(players) + i);
+                uint32_t content_size = 0;
+                current_players[content_size++] = *players_count;
+                for (int i = 0; i < MAX_PLAYERS; i++) {
+                    current_players[content_size++] = players[i].id;
+                    current_players[content_size++] = players[i].team_id;
+                    current_players[content_size++] = players[i].is_ready;
+                    current_players[content_size++] = players[i].name_len;
+                    for (int l = 0; l < MAX_PLAYER_NAME_LEN; l++) {
+                        current_players[content_size++] = players[i].name[l];
+                    }
                 }
 
                 *last_package_npk += 1;
-                char *message = preparePackage(*last_package_npk, 3, current_players, &current_players_len, current_players_len, *is_little_endian);
+                uint8_t *message = preparePackage(*last_package_npk, 3, current_players, &current_players_len, current_players_len, *is_little_endian);
                 write(socket, message, current_players_len);
 
                 break;
             }
+            // START_SETUP
             case 1: {
+                uint8_t msg[2];
+                msg[0] = BATTLEFIELD_X_MAX;
+                msg[1] = BATTLEFIELD_Y_MAX;
+                uint32_t content_size = 2;
+                *last_package_npk += 1;
+                uint8_t* pSTART_SETUP = preparePackage(*last_package_npk, 5, msg, &content_size, content_size, *is_little_endian);
+                write(socket, pSTART_SETUP, content_size);
                 *game_state = 2;
                 break;
             }
+            // STATE
             case 2: {
+                uint32_t battlefield_size = BATTLEFIELD_X_MAX * BATTLEFIELD_Y_MAX;
+                uint32_t full_content_size =
+                    sizeof(uint8_t) * 2 +
+                    sizeof(uint8_t) * battlefield_size +
+                    sizeof(struct Ship) * MAX_SHIPS + sizeof(uint8_t) +
+                    sizeof(struct Player) * MAX_PLAYERS + sizeof(uint8_t);
+
+                uint8_t content[full_content_size];
+                uint32_t content_size = 0;
+
+                content[content_size++] = BATTLEFIELD_X_MAX;
+                content[content_size++] = BATTLEFIELD_Y_MAX;
+                for (int i = 0; i < battlefield_size; i++) {
+                    content[content_size++] = battlefield[i];
+                }
+                content[content_size++] = MAX_SHIPS;
+                for (int i = 0; i < sizeof(struct Ship) * MAX_SHIPS; i++) {
+                    content[content_size++] = *(((char*)ships) + i);
+                }
+                content[content_size++] = *players_count;
+                for (int i = 0; i < sizeof(struct Player) * MAX_SHIPS; i++) {
+                    content[content_size++] = *(((char*)players) + i);
+                }
+
+                *last_package_npk += 1;
+                uint8_t *message = preparePackage(*last_package_npk, 6, content, &full_content_size, full_content_size, *is_little_endian);
+                write(socket, message, full_content_size);
+
                 break;
             }
         }
@@ -283,13 +331,13 @@ void processClient(uint8_t id, int socket)
 }
 
 // Adds player with a passed name
-void addPlayer(char *name, uint16_t name_len, uint8_t *id, uint8_t *team_id)
+void addPlayer(uint8_t *name, uint16_t name_len, uint8_t *id, uint8_t *team_id)
 {
     if (findPlayerById(*player_next_id) != NULL) {
         return;
     }
 
-    if (*player_count >= MAX_PLAYERS) {
+    if (*players_count >= MAX_PLAYERS) {
         *id = *player_next_id;
         *player_next_id += 1;
         return;
@@ -301,7 +349,7 @@ void addPlayer(char *name, uint16_t name_len, uint8_t *id, uint8_t *team_id)
     }
 
     new_player->id = *player_next_id;
-    new_player->team_id = (*player_count % 2) ? 2 : 1;
+    new_player->team_id = (*players_count % 2) ? 2 : 1;
     new_player->is_ready = 0;
     new_player->name_len = name_len;
     for (int i = 0; i < name_len; i++) {
@@ -310,7 +358,7 @@ void addPlayer(char *name, uint16_t name_len, uint8_t *id, uint8_t *team_id)
 
     // Update values for the next player
     *player_next_id += 1;
-    *player_count += 1;
+    *players_count += 1;
 
     *id = new_player->id;
     *team_id = new_player->team_id;
@@ -326,7 +374,7 @@ void removePlayer(uint16_t id)
     }
 
     printf("%s left the game.\n", player->name);
-    *player_count -= 1;
+    *players_count -= 1;
 
     player->id = 0;
     player->team_id = 0;
@@ -348,7 +396,7 @@ struct Player* findPlayerById(uint8_t id)
     return NULL;
 }
 
-void processPackage(char *msg, int socket)
+void processPackage(uint8_t *msg, int socket)
 {
     *last_package_npk = getPackageNPK(msg, *is_little_endian);
     if (*last_package_npk >= UINT32_MAX) {
@@ -367,32 +415,32 @@ void processPackage(char *msg, int socket)
     }
 }
 
-void pkgLABDIEN(char *msg, uint32_t content_size, int socket)
+void pkgLABDIEN(uint8_t *msg, uint32_t content_size, int socket)
 {
-    char *name = getPackageContent(msg, content_size);
+    uint8_t *name = getPackageContent(msg, content_size);
     uint8_t player_id = 0;
     uint8_t player_team_id = 0;
     addPlayer(name, content_size, &player_id, &player_team_id);
 
-    char playerData[2];
+    uint8_t playerData[2];
     playerData[0] = player_id;
     playerData[1] = player_team_id;
     uint32_t playerDataLen = 2;
     *last_package_npk += 1;
-    char *pkgACK = preparePackage(*last_package_npk, 1, playerData, &playerDataLen, playerDataLen, *is_little_endian);
+    uint8_t *pkgACK = preparePackage(*last_package_npk, 1, playerData, &playerDataLen, playerDataLen, *is_little_endian);
     write(socket, pkgACK, playerDataLen);
 }
 
-void pkgREADY(char *msg, uint32_t content_size)
+void pkgREADY(uint8_t *msg, uint32_t content_size)
 {
-    char *content = getPackageContent(msg, content_size);
+    uint8_t *content = getPackageContent(msg, content_size);
 
     struct Player *player = findPlayerById(content[0]);
     player->is_ready = content[1];
 
     printf("%s %s ready\n", player->name, (player->is_ready == 1) ? "is" : "is not");
 
-    for (int i = 0; i < *player_count; i++) {
+    for (int i = 0; i < *players_count; i++) {
         if (players[i].is_ready == 0) {
             *is_ready_all = 0;
             return;

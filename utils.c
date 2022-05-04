@@ -7,7 +7,7 @@
 
 /////////////////////////////////////// TEMP ///////////////////////////////////
 
-void printArray(char *array, uint32_t size)
+void printArray(uint8_t *array, uint32_t size)
 {
     for (uint32_t i = 0; i < size; i++) {
         printf("%x ", array[i]);
@@ -25,19 +25,19 @@ char isLittleEndianSystem()
 
 ////////////////////// Package preparation and unpacking ///////////////////////
 
-char* preparePackage(uint32_t npk, uint8_t type, char *content, uint32_t *content_size, uint32_t content_max_size, char is_little_endian)
+uint8_t* preparePackage(uint32_t npk, uint8_t type, uint8_t *content, uint32_t *content_size, uint32_t content_max_size, char is_little_endian)
 {
     struct CurrentPackage {
         uint16_t separator;
         uint32_t npk;
         uint32_t size;
         uint8_t type;
-        char content[content_max_size];
+        uint8_t content[content_max_size];
         uint8_t checksum;
         uint16_t separator_end;
     };
 
-    char *message = malloc(MAX_PACKAGE_SIZE);
+    uint8_t *message = malloc(MAX_PACKAGE_SIZE);
     memset(message, 0, MAX_PACKAGE_SIZE);
     struct CurrentPackage* msg = (struct CurrentPackage*) (message - 2);
     msg->separator = 0;
@@ -55,7 +55,7 @@ char* preparePackage(uint32_t npk, uint8_t type, char *content, uint32_t *conten
         sizeof(uint32_t) +
         sizeof(uint32_t) +
         sizeof(uint8_t) +
-        sizeof(char) * (content_max_size) +
+        sizeof(uint8_t) * (content_max_size) +
         sizeof(uint8_t) +
         sizeof(uint16_t)
     );
@@ -64,7 +64,7 @@ char* preparePackage(uint32_t npk, uint8_t type, char *content, uint32_t *conten
 
     escapePackage(message, &msg_size);
 
-    char *package = malloc(msg_size);
+    uint8_t *package = malloc(msg_size);
     for (int i = 0; i < msg_size; i++) {
         package[i] = message[i];
     }
@@ -74,10 +74,10 @@ char* preparePackage(uint32_t npk, uint8_t type, char *content, uint32_t *conten
     return package;
 }
 
-void escapePackage(char *msg, uint32_t *msg_size)
+void escapePackage(uint8_t *msg, uint32_t *msg_size)
 {
     uint32_t msg_len = *msg_size;
-    char escaped_msg[msg_len * 2];
+    uint8_t escaped_msg[msg_len * 2];
     int escaped_msg_size = 0;
 
     for (int i = 0; i < msg_len; i++) {
@@ -105,7 +105,7 @@ void escapePackage(char *msg, uint32_t *msg_size)
     }
 }
 
-char removePackageSeparator(char *msg, uint32_t *msg_size)
+char removePackageSeparator(uint8_t *msg, uint32_t *msg_size)
 {
     uint32_t msg_len = *msg_size;
 
@@ -128,10 +128,10 @@ char removePackageSeparator(char *msg, uint32_t *msg_size)
     return 0;
 }
 
-void unescapePackage(char *msg, uint32_t *msg_size)
+void unescapePackage(uint8_t *msg, uint32_t *msg_size)
 {
     uint32_t msg_len = *msg_size;
-    char unescaped[msg_len];
+    uint8_t unescaped[msg_len];
     int unescaped_len = 0;
 
     for (int i = 0; i < msg_len; i++) {
@@ -157,7 +157,7 @@ void unescapePackage(char *msg, uint32_t *msg_size)
     }
 }
 
-char unpackPackage(char *msg, uint32_t msg_size, uint32_t npk, char is_little_endian)
+char unpackPackage(uint8_t *msg, uint32_t msg_size, uint32_t npk, char is_little_endian)
 {
     if (removePackageSeparator(msg, &msg_size) == -1) {
         return -1;
@@ -179,24 +179,24 @@ char unpackPackage(char *msg, uint32_t msg_size, uint32_t npk, char is_little_en
 
 /////////////////////////////////////// Package INFO ///////////////////////////////////////
 
-uint32_t getPackageNPK(char *msg, char is_little_endian)
+uint32_t getPackageNPK(uint8_t *msg, char is_little_endian)
 {
     uint32_t res = *((uint32_t*) msg);
     return (is_little_endian) ? ntohl(res) : res;
 }
 
-uint8_t getPackageType(char *msg)
+uint8_t getPackageType(uint8_t *msg)
 {
     return *((uint8_t*) (msg + sizeof(uint32_t) * 2));
 }
 
-uint32_t getPackageContentSize(char *msg, char is_little_endian)
+uint32_t getPackageContentSize(uint8_t *msg, char is_little_endian)
 {
     uint32_t res = *((uint32_t*) (msg + sizeof(uint32_t)));
     return (is_little_endian) ? ntohl(res) : res;
 }
 
-char* getPackageContent(char *msg, uint32_t content_size)
+uint8_t* getPackageContent(uint8_t *msg, uint32_t content_size)
 {
     int msg_beginning = sizeof(uint32_t) * 2 + sizeof(uint8_t);
     for (int i = 0; i < content_size; i++) {
@@ -205,7 +205,7 @@ char* getPackageContent(char *msg, uint32_t content_size)
     return msg;
 }
 
-uint8_t calculatePackageChecksum(char *msg, size_t msg_size)
+uint8_t calculatePackageChecksum(uint8_t *msg, size_t msg_size)
 {
     uint8_t checksum = 0;
     for (int i = 0; i < msg_size - 1; i++) {
@@ -215,7 +215,7 @@ uint8_t calculatePackageChecksum(char *msg, size_t msg_size)
     return checksum;
 }
 
-uint8_t getPackageChecksum(char *msg, size_t msg_size)
+uint8_t getPackageChecksum(uint8_t *msg, size_t msg_size)
 {
-    return (uint8_t) msg[msg_size - 1];
+    return msg[msg_size - 1];
 }
