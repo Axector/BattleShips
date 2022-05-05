@@ -61,13 +61,16 @@ int clientConnect();
 void processPackage(uint8_t *msg);
 
 // Package types
-void pkgACK(uint8_t *msg, uint32_t content_size);           // 1
-void pkgLOBBY(uint8_t *msg, uint32_t content_size);         // 3
-void pkgSTART_SETUP(uint8_t *msg, uint32_t content_size);   // 5
-void pkgSTATE(uint8_t *msg, uint32_t content_size);         // 6
-
-struct Player* findPlayerById(uint8_t id);
-
+void pkgACK(uint8_t *msg, uint32_t content_size);                       // 1
+void pkgLOBBY(uint8_t *msg, uint32_t content_size);                     // 3
+void pkgSTART_SETUP(uint8_t *msg, uint32_t content_size);               // 5
+void pkgSTATE(uint8_t *msg, uint32_t content_size);                     // 6
+void pkgTEV_JALIEK(uint8_t *msg, uint32_t content_size);                // 7
+void pkgES_LIEKU(uint8_t type, uint8_t x, uint8_t y, uint8_t dir);      // 8
+void pkgSTART_GAME(uint8_t *msg, uint32_t content_size);                // 9
+void pkgTEV_JAIET(uint8_t *msg, uint32_t content_size);                 // 10
+void pkgGAJIENS(uint8_t action, uint8_t x, uint8_t y, uint8_t thing);   // 11
+void pkgEND_GAME(uint8_t *msg, uint32_t content_size);                  // 12
 
 int main(int argc, char *argv[])
 {
@@ -265,7 +268,7 @@ void keyboard(unsigned char key, int x, int y)
         if(key == 'r'){
             uint8_t msg[2];
             msg[0] = *this_ID;
-            msg[1] = (findPlayerById(*this_ID)->is_ready == 1) ? 0 : 1;
+            msg[1] = (findPlayerById(players, *this_ID)->is_ready == 1) ? 0 : 1;
             uint32_t content_size = 2;
             *last_package_npk += 1;
             uint8_t* pENTER = preparePackage(*last_package_npk, 4, msg, &content_size, content_size, *is_little_endian);
@@ -293,7 +296,7 @@ void printText(char *text, double x, double y)
 }
 
 void lobby(char *not_ready, char *ready)
-{   
+{
     glColor3f(0.0f, 0.0f, 0.0f);
     glRasterPos3f(4.0, 9.0, 0);
     printText("Lobby", 4.5, 9);
@@ -303,15 +306,15 @@ void lobby(char *not_ready, char *ready)
         for(int a = 0; a < strlen(players[i].name); a++){
             glutBitmapCharacter(GLUT_BITMAP_TIMES_ROMAN_24, players[i].name[a]);
         }
-        
 
-        if(players[i].is_ready == 1){        
+
+        if(players[i].is_ready == 1){
             glColor3f(0.0f, 1.0f, 0.0f);
             glRasterPos3f(8.0, 8.0-(0.3*i), 0);
             for(int a = 0; a < strlen(ready); a++){
                 glutBitmapCharacter(GLUT_BITMAP_TIMES_ROMAN_24, ready[a]);
             }
-        }else{        
+        }else{
             glColor3f(1.0f, 0.0f, 0.0f);
             glRasterPos3f(8.0, 8.0-(0.3*i), 0);
             for(int a = 0; a < strlen(not_ready); a++){
@@ -513,23 +516,27 @@ void processPackage(uint8_t *msg)
         *last_package_npk = 0;
     }
 
-    switch (getPackageType(msg)) {
-        case 1: {
-            pkgACK(msg, getPackageContentSize(msg, *is_little_endian));
-            break;
-        }
-        case 3: {
-            pkgLOBBY(msg, getPackageContentSize(msg, *is_little_endian));
-            break;
-        }
-        case 5: {
-            pkgSTART_SETUP(msg, getPackageContentSize(msg, *is_little_endian));
-            break;
-        }
-        case 6: {
-            pkgSTATE(msg, getPackageContentSize(msg, *is_little_endian));
-            break;
-        }
+    uint8_t msg_type = getPackageType(msg);
+    if (msg_type == 1) {
+        pkgACK(msg, getPackageContentSize(msg, *is_little_endian));
+    }
+    else if (msg_type == 3) {
+        pkgLOBBY(msg, getPackageContentSize(msg, *is_little_endian));
+    }
+    else if (msg_type == 5) {
+        pkgSTART_SETUP(msg, getPackageContentSize(msg, *is_little_endian));
+    }
+    else if (msg_type == 6) {
+        pkgSTATE(msg, getPackageContentSize(msg, *is_little_endian));
+    }
+    else if (msg_type == 7) {
+        pkgTEV_JALIEK(msg, getPackageContentSize(msg, *is_little_endian));
+    }
+    else if (msg_type == 9) {
+        pkgSTART_GAME(msg, getPackageContentSize(msg, *is_little_endian));
+    }
+    else if (msg_type == 10) {
+        pkgTEV_JAIET(msg, getPackageContentSize(msg, *is_little_endian));
     }
 
     *need_redisplay = 1;
@@ -598,13 +605,76 @@ void pkgSTATE(uint8_t *msg, uint32_t content_size)
     }
 }
 
-
-struct Player* findPlayerById(uint8_t id)
+void pkgTEV_JALIEK(uint8_t *msg, uint32_t content_size)
 {
-    for (int i = 0; i < MAX_PLAYERS; i++) {
-        if (players[i].id == id) {
-            return &players[i];
-        }
+    uint8_t *content = getPackageContent(msg, content_size);
+
+    if (*this_ID != content[0]) {
+        return;
     }
-    return NULL;
+
+    struct Ship* ship = findShipByIdAndTeamId(ships, content[1], *this_teamID);
+
+    // TODO put ship on battlefield, move and place
+}
+
+void pkgES_LIEKU(uint8_t type, uint8_t x, uint8_t y, uint8_t dir)
+{
+    uint32_t content_size = 5;
+    uint8_t msg[content_size];
+    msg[0] = *this_ID;
+    msg[1] = type;
+    msg[2] = x;
+    msg[3] = y;
+    msg[4] = dir;
+
+    *last_package_npk += 1;
+    uint8_t* pES_LIEKU = preparePackage(*last_package_npk, 8, msg, &content_size, content_size, *is_little_endian);
+    write(*server_socket, pES_LIEKU, content_size);
+}
+
+void pkgSTART_GAME(uint8_t *msg, uint32_t content_size)
+{
+    uint8_t *content = getPackageContent(msg, content_size);
+    *battlefield_x = content[0];
+    *battlefield_y = content[1];
+
+    *game_state = 2;
+}
+
+void pkgTEV_JAIET(uint8_t *msg, uint32_t content_size)
+{
+    uint8_t *content = getPackageContent(msg, content_size);
+
+    if (*this_ID != content[0]) {
+        return;
+    }
+
+    struct Ship* ship = findShipByIdAndTeamId(ships, content[1], *this_teamID);
+
+    // TODO do something with a ship
+}
+
+void pkgGAJIENS(uint8_t action, uint8_t x, uint8_t y, uint8_t thing)
+{
+    uint32_t content_size = 5;
+    uint8_t msg[content_size];
+    msg[0] = *this_ID;
+    msg[1] = action;
+    msg[2] = x;
+    msg[3] = y;
+    msg[4] = thing;
+
+    *last_package_npk += 1;
+    uint8_t* pES_LIEKU = preparePackage(*last_package_npk, 8, msg, &content_size, content_size, *is_little_endian);
+    write(*server_socket, pES_LIEKU, content_size);
+}
+
+void pkgEND_GAME(uint8_t *msg, uint32_t content_size)
+{
+    uint8_t *content = getPackageContent(msg, content_size);
+
+    // content[0] - winner id
+    // content[1] - winner team_id
+    // TODO end game somehow
 }

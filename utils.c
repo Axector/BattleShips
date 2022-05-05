@@ -23,6 +23,25 @@ char isLittleEndianSystem()
     return (*((uint8_t*)(&i))) == 0x67;
 }
 
+struct Player* findPlayerById(struct Player* players, uint8_t id)
+{
+    for (int i = 0; i < MAX_PLAYERS; i++) {
+        if (players[i].id == id) {
+            return &players[i];
+        }
+    }
+    return NULL;
+}
+
+struct Ship* findShipByIdAndTeamId(struct Ship* ships, uint8_t type, uint8_t team_id)
+{
+    for (int i = 0; i < MAX_SHIPS; i++) {
+        if (ships[i].type == type && ships[i].team_id == team_id) {
+            return &ships[i];
+        }
+    }
+    return NULL;
+}
 ////////////////////// Package preparation and unpacking ///////////////////////
 
 uint8_t* preparePackage(uint32_t npk, uint8_t type, uint8_t *content, uint32_t *content_size, uint32_t content_max_size, char is_little_endian)
