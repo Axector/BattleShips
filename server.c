@@ -47,7 +47,8 @@ void processClient(uint8_t id, int socket);
 void addPlayer(uint8_t *name, uint16_t name_len, uint8_t *id, uint8_t *team_id);
 void removePlayer(uint8_t id);
 void placeObjectOnBattlefield(uint8_t id, uint8_t x, uint8_t y);
-void placeShip(uint8_t type, uint8_t team_id, uint8_t x, uint8_t y, uint8_t dir);
+void placeShip(struct Ship* ship);
+void clearShip(struct Ship* ship);
 struct Player* getNextPlayer(uint8_t n);
 struct Ship* getNextShip(uint8_t n);
 void processPackage(uint8_t *msg, int socket);
@@ -60,6 +61,7 @@ void pkgSTATE(int socket);                                              // 6
 void pkgTEV_JALIEK(int socket);                                         // 7
 void pkgES_LIEKU(uint8_t *msg, uint32_t content_size, int socket);      // 8
 void pkgTEV_JAIET(int socket);                                          // 10
+void pkgGAJIENS(uint8_t *msg, uint32_t content_size);                   // 11
 
 
 int main ()
@@ -321,7 +323,7 @@ void processClient(uint8_t id, int socket)
         // START_SETUP
         else if (*game_state == 1) {
             pkgSTART_ANY(5, socket);
-            players[*count_active_player].active = 1;
+            getNextPlayer(*count_active_player)->active = 1;
             *game_state = 2;
         }
         // STATE [SETUP]
@@ -416,18 +418,23 @@ void placeObjectOnBattlefield(uint8_t id, uint8_t x, uint8_t y)
     battlefield[x * BATTLEFIELD_X_MAX + y] = id;
 }
 
-void placeShip(uint8_t type, uint8_t team_id, uint8_t x, uint8_t y, uint8_t dir)
+void placeShip(struct Ship* ship)
 {
-    struct Ship* ship = findShipByIdAndTeamId(ships, type, team_id);
-    ship->x = x;
-    ship->y = y;
-    ship->dir = dir;
+    uint8_t dx = (ship->dir == 1) ? 1 : (ship->dir == 3) ? -1 : 0;
+    uint8_t dy = (ship->dir == 0) ? -1 : (ship->dir == 2) ? 1 : 0;
 
-    uint8_t dx = (dir == 1) ? 1 : (dir == 3) ? -1 : 0;
-    uint8_t dy = (dir == 0) ? -1 : (dir == 2) ? 1 : 0;
+    for (int i = 0; i < 6 - ship->type; i++) {
+        placeObjectOnBattlefield(ship->type, ship->x + i * dx, ship->y + i * dy);
+    }
+}
 
-    for (int i = 0; i < 6 - type; i++) {
-        placeObjectOnBattlefield(type, x + i * dx, y + i * dy);
+void clearShip(struct Ship* ship)
+{
+    uint8_t dx = (ship->dir == 1) ? 1 : (ship->dir == 3) ? -1 : 0;
+    uint8_t dy = (ship->dir == 0) ? -1 : (ship->dir == 2) ? 1 : 0;
+
+    for (int i = 0; i < 6 - ship->type; i++) {
+        placeObjectOnBattlefield(0, ship->x + i * dx, ship->y + i * dy);
     }
 }
 
@@ -439,7 +446,6 @@ struct Player* getNextPlayer(uint8_t n)
             if (i == n / 2) {
                 return &players[j];
             }
-
             i++;
         }
     }
@@ -455,7 +461,6 @@ struct Ship* getNextShip(uint8_t n)
             if (i == n / 2) {
                 return &ships[j];
             }
-
             i++;
         }
     }
@@ -594,7 +599,12 @@ void pkgES_LIEKU(uint8_t *msg, uint32_t content_size, int socket)
     }
 
     player->active = 0;
-    placeShip(content[1], player->team_id, content[2], content[3], content[4]);
+    struct Ship* ship = findShipByIdAndTeamId(ships, content[1], player->team_id)
+    ship->x = content[2];
+    ship->y = content[3];
+    ship->dir = content[4];
+    placeShip(ship);
+
     *count_active_player += 1;
     *count_active_ships += 1;
 
@@ -622,4 +632,38 @@ void pkgTEV_JAIET(int socket)
     *last_package_npk += 1;
     uint8_t* pTEV_JAIET = preparePackage(*last_package_npk, 10, msg, &content_size, content_size, *is_little_endian);
     write(socket, pTEV_JAIET, content_size);
+}
+
+void pkgGAJIENS(uint8_t *msg, uint32_t content_size)
+{
+    uint8_t *content = getPackageContent(msg, content_size);
+
+    struct Player* player = findPlayerById(players, content[0]);
+    if (player->active == 0) {
+        return;
+    }
+
+    player->active = 0;
+    struct Ship* ship = getNextShip(*count_active_ships);
+
+    if (content[1] == 1) {
+        clearShip(ship);
+        ship->x = content[2];
+        ship->y = content[3];
+        ship->dir = content[4];
+        placeShip(ship);
+    }
+    else if (content[1] == 2) {
+        // Attack
+    }
+    else if (content[1] == 3) {
+        // Use Power-Up
+    }
+
+    *count_active_player += 1;
+    *count_active_ships += 1;
+
+    if (*count_active_player >= *players_count) {
+        *count_active_player = 0;
+    }
 }
