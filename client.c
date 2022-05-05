@@ -13,6 +13,8 @@
 #define HOST "127.0.0.1" /* localhost */
 
 /// Variables
+int quartal_map[4][4];
+
 char *shared_memory = NULL;
 
 int *server_socket = NULL;
@@ -45,7 +47,8 @@ void specialKeyboard(int key, int x, int y);
 void keyboard(unsigned char key, int x, int y);
 void closeFunc();
 void printText(char *text, double x, double y);
-void printConnectedUsers(char *not_ready, char *ready);
+void lobby(char *not_ready, char *ready);
+void printConnectedUsers();
 void inputField();
 void outlineCube();
 void filledCube(int x, int y);
@@ -68,6 +71,7 @@ struct Player* findPlayerById(uint8_t id);
 
 int main(int argc, char *argv[])
 {
+    quartal_map[0][0] = 1;
     getSharedMemory();
 
     // Check if current system is little-endian
@@ -110,6 +114,11 @@ int main(int argc, char *argv[])
     exit(0);
 }
 
+void resize(int width, int height) {
+    glutReshapeWindow(1400, 800);
+    glutPositionWindow(100, 100);
+}
+
 
 void glMain(int argc, char *argv[])
 {
@@ -127,34 +136,107 @@ void glMain(int argc, char *argv[])
     glLoadIdentity();
     glOrtho(0.0, 10.0, 0.0, 10.0, -1.0, 1.0);
     glutDisplayFunc(display);
+    glutReshapeFunc(resize);
 }
 
 void display()
 {
-    glClearColor(0.0f, 1.0f, 1.0f, 0.1f);
+    glClearColor(0.5, 0.5, 0.5, 0.0);
     glClear(GL_COLOR_BUFFER_BIT);
     if(*name_is_ready == 0){
         inputField();
     }else{
-        printConnectedUsers("Not Ready", "Ready");
-        //createPlane();
+        if(*game_state != 1){
+            lobby("Not Ready", "Ready");
+        }else{
+            createPlane();
+        }
     }
     glutSwapBuffers();
 }
 
 void specialKeyboard(int key, int x, int y)
 {
-    /*if(!players_count == 0){
-        if(key == 8){ //backspace
-            for(int i = 0;i < 32 || player_name[i] != '\0'; i++){
-                if(player_name[i+1] == NULL && player_name[i] != NULL){
-                    player_name[i] = key;
-                    printf('%s', player_name);
+    if(*game_state == 1){
+        if (key == GLUT_KEY_UP) {
+            int found = 0;
+            for(int i = 0; i < 4; i++){
+                for(int a = 0; a < 4; a++){
+                    if(quartal_map[i][a] == 1){
+                        if(i != 0){
+                            quartal_map[i][a] = 0;
+                            quartal_map[i-1][a] = 1;
+                            *plane = *plane - 4;
+                            found = 1;
+                            break;
+                        }
+                    }
+                }
+                if(found == 1){
                     break;
                 }
             }
         }
-    }*/
+        if (key == GLUT_KEY_DOWN) {
+            int found = 0;
+            for(int i = 0; i < 4; i++){
+                for(int a = 0; a < 4; a++){
+                    if(quartal_map[i][a] == 1){
+                        if(i != 3){
+                            quartal_map[i][a] = 0;
+                            quartal_map[i+1][a] = 1;
+                            *plane = *plane + 4;
+                            found = 1;
+                            break;
+                        }
+                    }
+                }
+                if(found == 1){
+                    break;
+                }
+            }
+        }
+        if (key == GLUT_KEY_LEFT) {
+            int found = 0;
+            for(int i = 0; i < 4; i++){
+                for(int a = 0; a < 4; a++){
+                    if(quartal_map[i][a] == 1){
+                        if(a != 0){
+                            quartal_map[i][a] = 0;
+                            quartal_map[i][a-1] = 1;
+                            *plane = *plane - 1;
+                            found = 1;
+                            break;
+                        }
+                    }
+                }
+                if(found == 1){
+                    break;
+                }
+            }
+        }
+        if (key == GLUT_KEY_RIGHT) {
+            int found = 0;
+            for(int i = 0; i < 4; i++){
+                for(int a = 0; a < 4; a++){
+                    if(quartal_map[i][a] == 1){
+                        if(a != 3){
+                            quartal_map[i][a] = 0;
+                            quartal_map[i][a+1] = 1;
+                            *plane = *plane + 1;
+                            found = 1;
+                            break;
+                        }
+                    }
+                }
+                if(found == 1){
+                    break;
+                }
+            }
+        }
+    }
+
+    *need_redisplay = 1;
 }
 
 void keyboard(unsigned char key, int x, int y)
@@ -162,6 +244,14 @@ void keyboard(unsigned char key, int x, int y)
     if(*name_is_ready == 0){
         if(key == 13){
             *name_is_ready = 1;
+        }else if(key == 8){
+            for(int i = 0;i < 32; i++){
+                if(player_name[i] == '\0'){
+                    player_name[i-1] = '\0';
+                    *player_name_len = i-1;
+                    break;
+                }
+            }
         }else{
             for(int i = 0;i < 32; i++){
                 if(player_name[i] == '\0'){
@@ -182,16 +272,6 @@ void keyboard(unsigned char key, int x, int y)
             write(*server_socket, pENTER, content_size);
         }
     }
-    switch (key) {
-        case 9: {
-            if(*plane != 16){
-                *plane = *plane + 1;
-            }else{
-                *plane = 0;
-            }
-            break;
-        }
-    }
 
     *need_redisplay = 1;
 }
@@ -204,7 +284,7 @@ void closeFunc()
 
 void printText(char *text, double x, double y)
 {
-    glColor3f(0.0f, 0.5f, 0.5f);
+    glColor3f(0.0f, 0.0f, 0.0f);
     glRasterPos3f(x, y, 0);
     while(*text){
         glutBitmapCharacter(GLUT_BITMAP_TIMES_ROMAN_24, *text++);
@@ -212,21 +292,28 @@ void printText(char *text, double x, double y)
     glFlush();
 }
 
-void printConnectedUsers(char *not_ready, char *ready)
-{
+void lobby(char *not_ready, char *ready)
+{   
+    glColor3f(0.0f, 0.0f, 0.0f);
+    glRasterPos3f(4.0, 9.0, 0);
+    printText("Lobby", 4.5, 9);
     for(int i = 0; i < *players_count; i++){
-        glColor3f(0.0f, 0.5f, 0.5f);
-        glRasterPos3f(1.0, 9.0-(0.3*i), 0);
+        glColor3f(0.0f, 0.0f, 0.0f);
+        glRasterPos3f(1.0, 8.0-(0.3*i), 0);
         for(int a = 0; a < strlen(players[i].name); a++){
             glutBitmapCharacter(GLUT_BITMAP_TIMES_ROMAN_24, players[i].name[a]);
         }
+        
 
-        glRasterPos3f(7.0, 9.0-(0.3*i), 0);
-        if(players[i].is_ready == 1){
+        if(players[i].is_ready == 1){        
+            glColor3f(0.0f, 1.0f, 0.0f);
+            glRasterPos3f(8.0, 8.0-(0.3*i), 0);
             for(int a = 0; a < strlen(ready); a++){
                 glutBitmapCharacter(GLUT_BITMAP_TIMES_ROMAN_24, ready[a]);
             }
-        }else{
+        }else{        
+            glColor3f(1.0f, 0.0f, 0.0f);
+            glRasterPos3f(8.0, 8.0-(0.3*i), 0);
             for(int a = 0; a < strlen(not_ready); a++){
                 glutBitmapCharacter(GLUT_BITMAP_TIMES_ROMAN_24, not_ready[a]);
             }
@@ -235,11 +322,29 @@ void printConnectedUsers(char *not_ready, char *ready)
     }
 }
 
+void printConnectedUsers(){
+    for(int i = 0; i < *players_count; i++){
+        glRasterPos3f(6.5, 9.0-(0.3*i), 0);
+        if(players[i].team_id == 1){
+            glColor3f(0.0f, 0.0f, 1.0f);
+            for(int a = 0; a < strlen(players[i].name); a++){
+                glutBitmapCharacter(GLUT_BITMAP_TIMES_ROMAN_24, players[i].name[a]);
+            }
+        }else{
+            glColor3f(1.0f, 0.0f, 0.0f);
+            for(int a = 0; a < strlen(players[i].name); a++){
+                glutBitmapCharacter(GLUT_BITMAP_TIMES_ROMAN_24, players[i].name[a]);
+            }
+        }
+    }
+    glFlush();
+}
+
 void inputField()
 {
     glClear(GL_COLOR_BUFFER_BIT);
     printText("Enter your name", 4.5, 9);
-    glColor3f(0.0f, 0.5f, 0.5f);
+    glColor3f(0.0f, 0.0f, 0.0f);
     glRasterPos3f(3, 8.2, 0);
     for(int i = 0; i < 32 || player_name[i] != '\0'; i++){
         glutBitmapCharacter(GLUT_BITMAP_TIMES_ROMAN_24, player_name[i]);
@@ -249,17 +354,17 @@ void inputField()
 
 void outlineCube()
 {
-    glColor3f(0.0f, 0.5f, 0.5f);
+    glColor3f(0.0f, 0.0f, 0.0f);
     for(int i = 0; i < 64; i ++){
         glBegin(GL_LINES);
             glVertex2f(0.5, 8.5-(0.12*i));
-            glVertex2f(0.0964*64, 8.5-(0.12*i));
+            glVertex2f(0.0817*64, 8.5-(0.12*i));
         glEnd();
     }
     for(int i = 0; i < 64; i ++){
         glBegin(GL_LINES);
-            glVertex2f(0.5+(0.09*i), 8.5);
-            glVertex2f(0.5+(0.09*i), 0.94);
+            glVertex2f(0.5+(0.075*i), 8.5);
+            glVertex2f(0.5+(0.075*i), 0.94);
         glEnd();
     }
     glFlush();
@@ -267,19 +372,19 @@ void outlineCube()
 
 void filledCube(int x, int y)
 {
-    glColor3f(0.0f, 0.5f, 0.5f);
+    glColor3f(0.0f, 0.0f, 0.0f);
     glBegin(GL_QUADS);
-        glVertex3f(0.41+(x*0.09), 8.64-(y*0.12), 0.0);
-        glVertex3f(0.5+(x*0.09), 8.64-(y*0.12), 0.0);
-        glVertex3f(0.5+(x*0.09), 8.50-(y*0.12), 0.0);
-        glVertex3f(0.41+(x*0.09), 8.50-(y*0.12), 0.0);
+        glVertex3f(0.5+(x*0.075), 8.62-(y*0.12), 0.0);
+        glVertex3f(0.425+(x*0.075), 8.62-(y*0.12), 0.0);
+        glVertex3f(0.425+(x*0.075), 8.50-(y*0.12), 0.0);
+        glVertex3f(0.5+(x*0.075), 8.50-(y*0.12), 0.0);
     glEnd();
     glFlush();
 }
 
 void quartalMap()
 {
-    glColor3f(0.0f, 0.5f, 0.5f);
+    glColor3f(0.0f, 0.0f, 0.0f);
     for(int y = 0; y < 4;  y++){
         for(int x = 0; x < 4; x++){
             glBegin(GL_LINE_LOOP);
@@ -289,16 +394,25 @@ void quartalMap()
                 glVertex3f(0.5+(x*0.1), 9.4-(y*0.2), 0.0);
             glEnd();
             glFlush();
+            if(quartal_map[y][x] == 1){
+                glBegin(GL_QUADS);
+                    glVertex3f(0.5+(x*0.1), 9.6-(y*0.2), 0.0);
+                    glVertex3f(0.6+(x*0.1), 9.6-(y*0.2), 0.0);
+                    glVertex3f(0.6+(x*0.1), 9.4-(y*0.2), 0.0);
+                    glVertex3f(0.5+(x*0.1), 9.4-(y*0.2), 0.0);
+                glEnd();
+                glFlush();
+            }
         }
     }
 }
 
 void createPlane()
 {
-    glClear(GL_COLOR_BUFFER_BIT);
+    printConnectedUsers();
     outlineCube();
     quartalMap();
-    printText("Battlefield", 4.5, 9.5);
+    printText("Battlefield", 2.5, 9.5);
     for(int i = 0; i < 4; i++){
         battlefield[9*256+(i+1)] = 1;
     }
@@ -329,6 +443,7 @@ void getSharedMemory()
     uint32_t shared_size = 0;
     server_socket = (int*) (shared_memory + shared_size); shared_size += sizeof(int);
     last_package_npk = (uint32_t*) (shared_memory + shared_size); shared_size += sizeof(uint32_t);
+    *last_package_npk = 0;
     to_exit = (char*) (shared_memory + shared_size); shared_size += sizeof(char);
     name_is_ready = (char*) (shared_memory + shared_size); shared_size += sizeof(char);
     need_redisplay = (char*) (shared_memory + shared_size); shared_size += sizeof(char);
