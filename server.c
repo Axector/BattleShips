@@ -10,36 +10,50 @@
 #include <stdint.h>
 #include "utils.h"
 
-#define SERVER_DELTA_TIME 500.0f // Milliseconds
+#define SERVER_DELTA_TIME 250.0f // Milliseconds
 
+/// Variables
 char *shared_memory = NULL;             // Stores whole shared data
-char *send_to_client = NULL;            // To send updates to the client each delta time
+
 uint32_t *server_time = NULL;           // Time passed on server
-char *is_little_endian = NULL;          // To know if current system is little-endian or not
-char *to_exit = NULL;                   // Check if server must be stopped
-unsigned char *to_exit_client = NULL;   // Array needed to close disconnected clients
-unsigned char *players_count = NULL;     // Current number of players
 uint8_t *player_next_id = NULL;         // Next player unique ID
 uint32_t *last_package_npk = NULL;      // NPK for packages
-unsigned char *game_state = NULL;       // Current game state
-char *is_ready_all = NULL;
-struct Player *players = NULL;         // Stores all players data
-struct Ship *ships = NULL;
-uint8_t *battlefield = NULL;
 
+char *to_exit = NULL;                   // Check if server must be stopped
+char *is_ready_all = NULL;
+char *send_to_client = NULL;            // To send updates to the client each delta time
+char *is_little_endian = NULL;          // To know if current system is little-endian or not
+unsigned char *to_exit_client = NULL;   // Array needed to close disconnected clients
+
+uint8_t *players_count = NULL;          // Current number of players
+struct Player *players = NULL;          // Stores all players data
+uint8_t *ships_count = NULL;
+struct Ship *ships = NULL;
+
+uint8_t *count_active_ship = NULL;
+uint8_t *count_active_player = NULL;
+struct Ship *available_ships = NULL;
+uint8_t *battlefield = NULL;
+uint8_t *game_state = NULL;             // Current game state
+
+
+/// Functions in this file
 void getSharedMemory();
 void setDefaults();
 void gameloop();
 void startNetwork();
 void processClient(uint8_t id, int socket);
+
 void addPlayer(uint8_t *name, uint16_t name_len, uint8_t *id, uint8_t *team_id);
-void removePlayer(uint16_t id);
+void removePlayer(uint8_t id);
 struct Player* findPlayerById(uint8_t id);
 void processPackage(uint8_t *msg, int socket);
 
 // Package types
-void pkgLABDIEN(uint8_t *msg, uint32_t content_size, int socket);      // 0
-void pkgREADY(uint8_t *msg, uint32_t content_size);                    // 4
+void pkgLABDIEN(uint8_t *msg, uint32_t content_size, int socket);       // 0
+void pkgREADY(uint8_t *msg, uint32_t content_size);                     // 4
+void pkgTEV_JALIEK(int socket);                                         // 7
+
 
 int main ()
 {
@@ -80,17 +94,21 @@ void getSharedMemory()
 
     uint32_t shared_size = 0;
     server_time = (uint32_t*) (shared_memory + shared_size); shared_size = sizeof(uint32_t);
-    send_to_client = (char*) (shared_memory + shared_size); shared_size += sizeof(char);
-    is_little_endian = (char*) (shared_memory + shared_size); shared_size += sizeof(char);
-    to_exit = (char*) (shared_memory + shared_size); shared_size += sizeof(char);
-    players_count = (unsigned char*) (shared_memory + shared_size); shared_size += sizeof(char);
     player_next_id = (uint8_t*) (shared_memory + shared_size); shared_size += sizeof(uint8_t);
     last_package_npk = (uint32_t*) (shared_memory + shared_size); shared_size += sizeof(uint32_t);
-    game_state = (unsigned char*) (shared_memory + shared_size); shared_size += sizeof(char);
+    to_exit = (char*) (shared_memory + shared_size); shared_size += sizeof(char);
     is_ready_all = (char*) (shared_memory + shared_size); shared_size += sizeof(char);
+    send_to_client = (char*) (shared_memory + shared_size); shared_size += sizeof(char);
+    is_little_endian = (char*) (shared_memory + shared_size); shared_size += sizeof(char);
+    players_count = (uint8_t*) (shared_memory + shared_size); shared_size += sizeof(uint8_t);
     players = (struct Player*) (shared_memory + shared_size); shared_size += sizeof(struct Player) * MAX_PLAYERS;
+    ships_count = (uint8_t*) (shared_memory + shared_size); shared_size += sizeof(uint8_t);
     ships = (struct Ship*) (shared_memory + shared_size); shared_size += sizeof(struct Ship) * MAX_SHIPS;
+    count_active_ship = (uint8_t*) (shared_memory + shared_size); shared_size += sizeof(uint8_t);
+    count_active_player = (uint8_t*) (shared_memory + shared_size); shared_size += sizeof(uint8_t);
+    available_ships = (struct Ship*) (shared_memory + shared_size); shared_size += sizeof(struct Ship) * MAX_SHIPS;
     battlefield = (uint8_t*) (shared_memory + shared_size); shared_size += sizeof(uint8_t) * BATTLEFIELD_X_MAX * BATTLEFIELD_Y_MAX;
+    game_state = (uint8_t*) (shared_memory + shared_size); shared_size += sizeof(uint8_t);
 }
 
 void setDefaults()
@@ -98,6 +116,18 @@ void setDefaults()
     *is_little_endian = isLittleEndianSystem();
     *player_next_id = 1;
     *last_package_npk = 1;
+
+    for (int i = 0, type = 1; i < MAX_SHIPS; i += 2) {
+        for (int k = 0; k < 2; k++) {
+            available_ships[i + k].type = type;
+            available_ships[i + k].x = 0;
+            available_ships[i + k].y = 0;
+            available_ships[i + k].dir = 0;
+            available_ships[i + k].team_id = k + 1;
+            available_ships[i + k].damage = 0;
+        }
+        type++;
+    }
 }
 
 void gameloop()
@@ -284,18 +314,23 @@ void processClient(uint8_t id, int socket)
             }
             // START_SETUP
             case 1: {
-                uint8_t msg[2];
+                uint32_t content_size = 2;
+                uint8_t msg[content_size];
                 msg[0] = BATTLEFIELD_X_MAX;
                 msg[1] = BATTLEFIELD_Y_MAX;
-                uint32_t content_size = 2;
                 *last_package_npk += 1;
                 uint8_t* pSTART_SETUP = preparePackage(*last_package_npk, 5, msg, &content_size, content_size, *is_little_endian);
                 write(socket, pSTART_SETUP, content_size);
+
+                players[*count_active_player].active = 1;
+
                 *game_state = 2;
                 break;
             }
             // STATE
             case 2: {
+                pkgTEV_JALIEK(socket);
+
                 uint32_t battlefield_size = BATTLEFIELD_X_MAX * BATTLEFIELD_Y_MAX;
                 uint32_t full_content_size =
                     sizeof(uint8_t) * 2 +
@@ -311,7 +346,7 @@ void processClient(uint8_t id, int socket)
                 for (int i = 0; i < battlefield_size; i++) {
                     content[content_size++] = battlefield[i];
                 }
-                content[content_size++] = MAX_SHIPS;
+                content[content_size++] = *ships_count;
                 for (int i = 0; i < sizeof(struct Ship) * MAX_SHIPS; i++) {
                     content[content_size++] = *(((char*)ships) + i);
                 }
@@ -364,7 +399,7 @@ void addPlayer(uint8_t *name, uint16_t name_len, uint8_t *id, uint8_t *team_id)
     *team_id = new_player->team_id;
 }
 
-void removePlayer(uint16_t id)
+void removePlayer(uint8_t id)
 {
     struct Player* player = findPlayerById(id);
 
@@ -447,4 +482,15 @@ void pkgREADY(uint8_t *msg, uint32_t content_size)
         }
     }
     *is_ready_all = 1;
+}
+
+void pkgTEV_JALIEK(int socket)
+{
+    uint32_t content_size = 2;
+    uint8_t msg[content_size];
+    msg[0] = players[*count_active_player].id;
+    msg[1] = available_ships[*count_active_ship].type;
+    *last_package_npk += 1;
+    uint8_t* pSTART_SETUP = preparePackage(*last_package_npk, 7, msg, &content_size, content_size, *is_little_endian);
+    write(socket, pSTART_SETUP, content_size);
 }
