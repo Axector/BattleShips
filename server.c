@@ -10,36 +10,57 @@
 #include <stdint.h>
 #include "utils.h"
 
-#define SERVER_DELTA_TIME 500.0f // Milliseconds
+#define SERVER_DELTA_TIME 250.0f // Milliseconds
 
+/// Variables
 char *shared_memory = NULL;             // Stores whole shared data
-char *send_to_client = NULL;            // To send updates to the client each delta time
+
 uint32_t *server_time = NULL;           // Time passed on server
-char *is_little_endian = NULL;          // To know if current system is little-endian or not
-char *to_exit = NULL;                   // Check if server must be stopped
-unsigned char *to_exit_client = NULL;   // Array needed to close disconnected clients
-unsigned char *players_count = NULL;     // Current number of players
 uint8_t *player_next_id = NULL;         // Next player unique ID
 uint32_t *last_package_npk = NULL;      // NPK for packages
-unsigned char *game_state = NULL;       // Current game state
-char *is_ready_all = NULL;
-struct Player *players = NULL;         // Stores all players data
-struct Ship *ships = NULL;
-uint8_t *battlefield = NULL;
 
+char *to_exit = NULL;                   // Check if server must be stopped
+char *is_ready_all = NULL;
+char *send_to_client = NULL;            // To send updates to the client each delta time
+char *is_little_endian = NULL;          // To know if current system is little-endian or not
+unsigned char *to_exit_client = NULL;   // Array needed to close disconnected clients
+
+uint8_t *players_count = NULL;          // Current number of players
+struct Player *players = NULL;          // Stores all players data
+struct Ship *ships = NULL;
+
+uint8_t *count_active_player = NULL;
+uint8_t *count_active_ships = NULL;
+uint8_t *battlefield_x = NULL;
+uint8_t *battlefield_y = NULL;
+uint8_t *battlefield = NULL;
+uint8_t *game_state = NULL;             // Current game state
+
+
+/// Functions in this file
 void getSharedMemory();
 void setDefaults();
 void gameloop();
 void startNetwork();
 void processClient(uint8_t id, int socket);
+
 void addPlayer(uint8_t *name, uint16_t name_len, uint8_t *id, uint8_t *team_id);
-void removePlayer(uint16_t id);
+void removePlayer(uint8_t id);
 struct Player* findPlayerById(uint8_t id);
+struct Ship* findShipByIdAndTeamId(uint8_t type, uint8_t team_id);
+void placeObjectOnBattlefield(uint8_t id, uint8_t x, uint8_t y);
+void placeShip(uint8_t type, uint8_t team_id, uint8_t x, uint8_t y, uint8_t dir);
 void processPackage(uint8_t *msg, int socket);
 
 // Package types
-void pkgLABDIEN(uint8_t *msg, uint32_t content_size, int socket);      // 0
-void pkgREADY(uint8_t *msg, uint32_t content_size);                    // 4
+void pkgLABDIEN(uint8_t *msg, uint32_t content_size, int socket);       // 0
+void pkgREADY(uint8_t *msg, uint32_t content_size);                     // 4
+void pkgSTART_ANY(uint8_t type, int socket);                            // 5 / 9
+void pkgSTATE(int socket);                                              // 6
+void pkgTEV_JALIEK(int socket);                                         // 7
+void pkgES_LIEKU(uint8_t *msg, uint32_t content_size, int socket);      // 8
+void pkgTEV_JAIET(int socket);                                          // 10
+
 
 int main ()
 {
@@ -80,17 +101,21 @@ void getSharedMemory()
 
     uint32_t shared_size = 0;
     server_time = (uint32_t*) (shared_memory + shared_size); shared_size = sizeof(uint32_t);
-    send_to_client = (char*) (shared_memory + shared_size); shared_size += sizeof(char);
-    is_little_endian = (char*) (shared_memory + shared_size); shared_size += sizeof(char);
-    to_exit = (char*) (shared_memory + shared_size); shared_size += sizeof(char);
-    players_count = (unsigned char*) (shared_memory + shared_size); shared_size += sizeof(char);
     player_next_id = (uint8_t*) (shared_memory + shared_size); shared_size += sizeof(uint8_t);
     last_package_npk = (uint32_t*) (shared_memory + shared_size); shared_size += sizeof(uint32_t);
-    game_state = (unsigned char*) (shared_memory + shared_size); shared_size += sizeof(char);
+    to_exit = (char*) (shared_memory + shared_size); shared_size += sizeof(char);
     is_ready_all = (char*) (shared_memory + shared_size); shared_size += sizeof(char);
+    send_to_client = (char*) (shared_memory + shared_size); shared_size += sizeof(char);
+    is_little_endian = (char*) (shared_memory + shared_size); shared_size += sizeof(char);
+    players_count = (uint8_t*) (shared_memory + shared_size); shared_size += sizeof(uint8_t);
     players = (struct Player*) (shared_memory + shared_size); shared_size += sizeof(struct Player) * MAX_PLAYERS;
+    count_active_ships = (uint8_t*) (shared_memory + shared_size); shared_size += sizeof(uint8_t);
     ships = (struct Ship*) (shared_memory + shared_size); shared_size += sizeof(struct Ship) * MAX_SHIPS;
+    count_active_player = (uint8_t*) (shared_memory + shared_size); shared_size += sizeof(uint8_t);
+    battlefield_x = (uint8_t*) (shared_memory + shared_size); shared_size += sizeof(uint8_t);
+    battlefield_y = (uint8_t*) (shared_memory + shared_size); shared_size += sizeof(uint8_t);
     battlefield = (uint8_t*) (shared_memory + shared_size); shared_size += sizeof(uint8_t) * BATTLEFIELD_X_MAX * BATTLEFIELD_Y_MAX;
+    game_state = (uint8_t*) (shared_memory + shared_size); shared_size += sizeof(uint8_t);
 }
 
 void setDefaults()
@@ -98,6 +123,20 @@ void setDefaults()
     *is_little_endian = isLittleEndianSystem();
     *player_next_id = 1;
     *last_package_npk = 1;
+    *battlefield_x = BATTLEFIELD_X_MAX;
+    *battlefield_y = BATTLEFIELD_Y_MAX;
+
+    for (int i = 0, type = 1; i < MAX_SHIPS; i += 2) {
+        for (int k = 0; k < 2; k++) {
+            ships[i + k].type = type;
+            ships[i + k].x = 0;
+            ships[i + k].y = 0;
+            ships[i + k].dir = 0;
+            ships[i + k].team_id = k + 1;
+            ships[i + k].damage = 0;
+        }
+        type++;
+    }
 }
 
 void gameloop()
@@ -284,46 +323,29 @@ void processClient(uint8_t id, int socket)
             }
             // START_SETUP
             case 1: {
-                uint8_t msg[2];
-                msg[0] = BATTLEFIELD_X_MAX;
-                msg[1] = BATTLEFIELD_Y_MAX;
-                uint32_t content_size = 2;
-                *last_package_npk += 1;
-                uint8_t* pSTART_SETUP = preparePackage(*last_package_npk, 5, msg, &content_size, content_size, *is_little_endian);
-                write(socket, pSTART_SETUP, content_size);
+                pkgSTART_ANY(5, socket);
+
+                players[*count_active_player].active = 1;
+
                 *game_state = 2;
                 break;
             }
-            // STATE
+            // STATE [SETUP]
             case 2: {
-                uint32_t battlefield_size = BATTLEFIELD_X_MAX * BATTLEFIELD_Y_MAX;
-                uint32_t full_content_size =
-                    sizeof(uint8_t) * 2 +
-                    sizeof(uint8_t) * battlefield_size +
-                    sizeof(struct Ship) * MAX_SHIPS + sizeof(uint8_t) +
-                    sizeof(struct Player) * MAX_PLAYERS + sizeof(uint8_t);
-
-                uint8_t content[full_content_size];
-                uint32_t content_size = 0;
-
-                content[content_size++] = BATTLEFIELD_X_MAX;
-                content[content_size++] = BATTLEFIELD_Y_MAX;
-                for (int i = 0; i < battlefield_size; i++) {
-                    content[content_size++] = battlefield[i];
-                }
-                content[content_size++] = MAX_SHIPS;
-                for (int i = 0; i < sizeof(struct Ship) * MAX_SHIPS; i++) {
-                    content[content_size++] = *(((char*)ships) + i);
-                }
-                content[content_size++] = *players_count;
-                for (int i = 0; i < sizeof(struct Player) * MAX_SHIPS; i++) {
-                    content[content_size++] = *(((char*)players) + i);
-                }
-
-                *last_package_npk += 1;
-                uint8_t *message = preparePackage(*last_package_npk, 6, content, &full_content_size, full_content_size, *is_little_endian);
-                write(socket, message, full_content_size);
-
+                pkgTEV_JALIEK(socket);
+                pkgSTATE(socket);
+                break;
+            }
+            // START_GAME
+            case 3: {
+                pkgSTART_ANY(9, socket);
+                *game_state = 4;
+                break;
+            }
+            // STATE [GAME]
+            case 4: {
+                pkgTEV_JAIET(socket);
+                pkgSTATE(socket);
                 break;
             }
         }
@@ -364,7 +386,7 @@ void addPlayer(uint8_t *name, uint16_t name_len, uint8_t *id, uint8_t *team_id)
     *team_id = new_player->team_id;
 }
 
-void removePlayer(uint16_t id)
+void removePlayer(uint8_t id)
 {
     struct Player* player = findPlayerById(id);
 
@@ -396,9 +418,46 @@ struct Player* findPlayerById(uint8_t id)
     return NULL;
 }
 
+struct Ship* findShipByIdAndTeamId(uint8_t type, uint8_t team_id)
+{
+    for (int i = 0; i < MAX_SHIPS; i++) {
+        if (ships[i].type == type && ships[i].team_id == team_id) {
+            return &ships[i];
+        }
+    }
+    return NULL;
+}
+
+void placeObjectOnBattlefield(uint8_t id, uint8_t x, uint8_t y)
+{
+    if (x < 0 || x >= *battlefield_x || y < 0 || y >= *battlefield_y) {
+        return;
+    }
+
+    battlefield[x * BATTLEFIELD_X_MAX + y] = id;
+}
+
+void placeShip(uint8_t type, uint8_t team_id, uint8_t x, uint8_t y, uint8_t dir)
+{
+    struct Ship* ship = findShipByIdAndTeamId(type, team_id);
+    ship->x = x;
+    ship->y = y;
+    ship->dir = dir;
+
+    uint8_t dx = (dir == 1) ? 1 : (dir == 3) ? -1 : 0;
+    uint8_t dy = (dir == 0) ? -1 : (dir == 2) ? 1 : 0;
+
+    for (int i = 0; i < 6 - type; i++) {
+        placeObjectOnBattlefield(type, x + i * dx, y + i * dy);
+    }
+}
+
 void processPackage(uint8_t *msg, int socket)
 {
-    *last_package_npk = getPackageNPK(msg, *is_little_endian);
+    uint32_t npk = getPackageNPK(msg, *is_little_endian);
+    if (npk != 0) {
+        *last_package_npk = npk;
+    }
     if (*last_package_npk >= UINT32_MAX) {
         *last_package_npk = 0;
     }
@@ -410,6 +469,10 @@ void processPackage(uint8_t *msg, int socket)
         }
         case 4: {
             pkgREADY(msg, getPackageContentSize(msg, *is_little_endian));
+            break;
+        }
+        case 8: {
+            pkgES_LIEKU(msg, getPackageContentSize(msg, *is_little_endian), socket);
             break;
         }
     }
@@ -447,4 +510,103 @@ void pkgREADY(uint8_t *msg, uint32_t content_size)
         }
     }
     *is_ready_all = 1;
+}
+
+void pkgSTART_ANY(uint8_t type, int socket)
+{
+    uint32_t content_size = 2;
+    uint8_t msg[content_size];
+    msg[0] = *battlefield_x;
+    msg[1] = *battlefield_y;
+    *last_package_npk += 1;
+    uint8_t* pSTART_SETUP = preparePackage(*last_package_npk, type, msg, &content_size, content_size, *is_little_endian);
+    write(socket, pSTART_SETUP, content_size);
+}
+
+void pkgSTATE(int socket)
+{
+    uint32_t battlefield_size = BATTLEFIELD_X_MAX * BATTLEFIELD_Y_MAX;
+    uint32_t full_content_size =
+        sizeof(uint8_t) * 2 +
+        sizeof(uint8_t) * battlefield_size +
+        sizeof(struct Ship) * MAX_SHIPS + sizeof(uint8_t) +
+        sizeof(struct Player) * MAX_PLAYERS + sizeof(uint8_t);
+
+    uint8_t content[full_content_size];
+    uint32_t content_size = 0;
+
+    content[content_size++] = BATTLEFIELD_X_MAX;
+    content[content_size++] = BATTLEFIELD_Y_MAX;
+    for (int i = 0; i < battlefield_size; i++) {
+        content[content_size++] = battlefield[i];
+    }
+    content[content_size++] = MAX_SHIPS;
+    for (int i = 0; i < sizeof(struct Ship) * MAX_SHIPS; i++) {
+        content[content_size++] = *(((char*)ships) + i);
+    }
+    content[content_size++] = *players_count;
+    for (int i = 0; i < sizeof(struct Player) * MAX_SHIPS; i++) {
+        content[content_size++] = *(((char*)players) + i);
+    }
+
+    *last_package_npk += 1;
+    uint8_t *message = preparePackage(*last_package_npk, 6, content, &full_content_size, full_content_size, *is_little_endian);
+    write(socket, message, full_content_size);
+}
+
+void pkgTEV_JALIEK(int socket)
+{
+    if (*count_active_ships >= MAX_SHIPS) {
+        *count_active_ships = 0;
+        *game_state = 3;
+        return;
+    }
+
+    uint32_t content_size = 2;
+    uint8_t msg[content_size];
+    msg[0] = players[*count_active_player].id;
+    msg[1] = ships[*count_active_ships].type;
+
+    *last_package_npk += 1;
+    uint8_t* pSTART_SETUP = preparePackage(*last_package_npk, 7, msg, &content_size, content_size, *is_little_endian);
+    write(socket, pSTART_SETUP, content_size);
+}
+
+void pkgES_LIEKU(uint8_t *msg, uint32_t content_size, int socket)
+{
+    uint8_t *content = getPackageContent(msg, content_size);
+
+    struct Player* player = findPlayerById(content[0]);
+    if (player->active == 0) {
+        return;
+    }
+
+    player->active = 0;
+    placeShip(content[1], player->team_id, content[2], content[3], content[4]);
+    *count_active_player += 1;
+    *count_active_ships += 1;
+
+    if (*count_active_player >= *players_count) {
+        *count_active_player = 0;
+    }
+
+    pkgTEV_JALIEK(socket);
+}
+
+void pkgTEV_JAIET(int socket)
+{
+    struct Ship ship = ships[*count_active_ships];
+
+    uint32_t content_size = 6;
+    uint8_t msg[content_size];
+    msg[0] = players[*count_active_player].id;
+    msg[1] = ship.type;
+    msg[2] = ship.x;
+    msg[3] = ship.y;
+    msg[4] = ship.dir;
+    msg[5] = ship.damage;
+
+    *last_package_npk += 1;
+    uint8_t* pSTART_SETUP = preparePackage(*last_package_npk, 10, msg, &content_size, content_size, *is_little_endian);
+    write(socket, pSTART_SETUP, content_size);
 }
