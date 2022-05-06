@@ -47,6 +47,7 @@ void processClient(uint8_t id, int socket);
 void addPlayer(uint8_t *name, uint16_t name_len, uint8_t *id, uint8_t *team_id);
 void removePlayer(uint8_t id);
 void placeObjectOnBattlefield(uint8_t id, uint8_t x, uint8_t y);
+uint8_t getBattlefieldObject(uint8_t x, uint8_t y);
 void placeShip(struct Ship* ship);
 void clearShip(struct Ship* ship);
 struct Player* getNextPlayer(uint8_t n);
@@ -418,8 +419,15 @@ void placeObjectOnBattlefield(uint8_t id, uint8_t x, uint8_t y)
     battlefield[x * BATTLEFIELD_X_MAX + y] = id;
 }
 
+uint8_t getBattlefieldObject(uint8_t x, uint8_t y)
+{
+    return battlefield[x * BATTLEFIELD_X_MAX + y];
+}
+
 void placeShip(struct Ship* ship)
 {
+    // TODO Check ship position
+
     uint8_t dx = (ship->dir == 1) ? 1 : (ship->dir == 3) ? -1 : 0;
     uint8_t dy = (ship->dir == 0) ? -1 : (ship->dir == 2) ? 1 : 0;
 
@@ -646,18 +654,50 @@ void pkgGAJIENS(uint8_t *msg, uint32_t content_size)
     player->active = 0;
     struct Ship* ship = getNextShip(*count_active_ships);
 
-    if (content[1] == 1) {
+    uint8_t action_type = content[1];
+    uint8_t x = content[2];
+    uint8_t y = content[3];
+    if (action_type == 1) {
         clearShip(ship);
-        ship->x = content[2];
-        ship->y = content[3];
+        ship->x = x;
+        ship->y = y;
         ship->dir = content[4];
         placeShip(ship);
     }
-    else if (content[1] == 2) {
-        // Attack
+    else if (action_type == 2) {
+        uint8_t object_type = getBattlefieldObject(x, y);
+        if (object_type >= 1 && object_type <= 5) {
+            enum BattlefieldObj obj = Hit;
+            placeObjectOnBattlefield(obj, x, y);
+
+            // TODO deal damage to the ship
+        }
+        else {
+            enum BattlefieldObj obj = HitNot;
+            placeObjectOnBattlefield(obj, x, y);
+        }
     }
-    else if (content[1] == 3) {
-        // Use Power-Up
+    else if (action_type == 3) {
+        uint8_t powerup_type = content[4];
+        enum BattlefieldObj obj = Mine;
+        uint8_t mine = obj;
+        obj = Rocket;
+        uint8_t rocket = obj;
+        if (powerup_type == mine) {
+            placeObjectOnBattlefield(mine, x, y);
+        }
+        else if (powerup_type == rocket) {
+            if (object_type >= 1 && object_type <= 5) {
+                enum BattlefieldObj obj = Hit;
+                placeObjectOnBattlefield(obj, x, y);
+
+                // TODO deal damage to the ship
+            }
+            else {
+                enum BattlefieldObj obj = HitNot;
+                placeObjectOnBattlefield(obj, x, y);
+            }
+        }
     }
 
     *count_active_player += 1;
