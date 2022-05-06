@@ -42,6 +42,36 @@ struct Ship* findShipByIdAndTeamId(struct Ship* ships, uint8_t type, uint8_t tea
     }
     return NULL;
 }
+
+void getShipData(uint8_t type, uint8_t *speed, uint8_t *range, uint8_t *is_dir)
+{
+    if (type == 1) {
+        *speed = 0;
+        *range = BATTLEFIELD_X_MAX;
+        *is_dir = 0;
+    }
+    else if (type == 2) {
+        *speed = 1;
+        *range = 25;
+        *is_dir = 0;
+    }
+    else if (type == 3) {
+        *speed = 3;
+        *range = BATTLEFIELD_X_MAX;
+        *is_dir = 1;
+    }
+    else if (type == 4) {
+        *speed = 2;
+        *range = 10;
+        *is_dir = 0;
+    }
+    else if (type == 5) {
+        *speed = 5;
+        *range = 0;
+        *is_dir = 0;
+    }
+}
+
 ////////////////////// Package preparation and unpacking ///////////////////////
 
 uint8_t* preparePackage(uint32_t npk, uint8_t type, uint8_t *content, uint32_t *content_size, uint32_t content_max_size, char is_little_endian)
