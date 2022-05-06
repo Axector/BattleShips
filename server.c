@@ -599,7 +599,7 @@ void pkgES_LIEKU(uint8_t *msg, uint32_t content_size, int socket)
     }
 
     player->active = 0;
-    struct Ship* ship = findShipByIdAndTeamId(ships, content[1], player->team_id)
+    struct Ship* ship = findShipByIdAndTeamId(ships, content[1], player->team_id);
     ship->x = content[2];
     ship->y = content[3];
     ship->dir = content[4];
