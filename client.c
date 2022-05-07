@@ -21,7 +21,6 @@ int *server_socket = NULL;
 uint32_t *last_package_npk = NULL;      // NPK for packages
 
 char *to_exit = NULL;
-char *name_is_ready = NULL;
 char *need_redisplay = NULL;
 char *is_little_endian = NULL;
 
@@ -96,7 +95,7 @@ int main(int argc, char *argv[])
         }
     }
 
-    while(*name_is_ready == 0) {
+    while(*game_state == 0) {
         if (*to_exit == 1) {
             exit(0);
         }
@@ -146,21 +145,21 @@ void display()
 {
     glClearColor(0.5, 0.5, 0.5, 0.0);
     glClear(GL_COLOR_BUFFER_BIT);
-    if(*name_is_ready == 0){
+    if(*game_state == 0){
         inputField();
-    }else{
-        if(*game_state != 1){
-            lobby("Not Ready", "Ready");
-        }else{
-            createPlane();
-        }
+    }
+    else if(*game_state == 1) {
+        lobby("Not Ready", "Ready");
+    }
+    else{
+        createPlane();
     }
     glutSwapBuffers();
 }
 
 void specialKeyboard(int key, int x, int y)
 {
-    if(*game_state == 1){
+    if(*game_state == 2){
         if (key == GLUT_KEY_UP) {
             int found = 0;
             for(int i = 0; i < 4; i++){
@@ -244,9 +243,9 @@ void specialKeyboard(int key, int x, int y)
 
 void keyboard(unsigned char key, int x, int y)
 {
-    if(*name_is_ready == 0){
+    if(*game_state == 0){
         if(key == 13){
-            *name_is_ready = 1;
+            *game_state = 1;
         }else if(key == 8){
             for(int i = 0;i < 32; i++){
                 if(player_name[i] == '\0'){
@@ -264,8 +263,9 @@ void keyboard(unsigned char key, int x, int y)
                 }
             }
         }
-    }else{
-        if(key == 'r'){
+    }
+    else if (*game_state == 1) {
+        if(key == 'r') {
             uint8_t msg[2];
             msg[0] = *this_ID;
             msg[1] = (findPlayerById(players, *this_ID)->is_ready == 1) ? 0 : 1;
@@ -448,7 +448,6 @@ void getSharedMemory()
     last_package_npk = (uint32_t*) (shared_memory + shared_size); shared_size += sizeof(uint32_t);
     *last_package_npk = 0;
     to_exit = (char*) (shared_memory + shared_size); shared_size += sizeof(char);
-    name_is_ready = (char*) (shared_memory + shared_size); shared_size += sizeof(char);
     need_redisplay = (char*) (shared_memory + shared_size); shared_size += sizeof(char);
     is_little_endian = (char*) (shared_memory + shared_size); shared_size += sizeof(char);
     this_ID = (uint8_t*) (shared_memory + shared_size); shared_size += sizeof(uint8_t);
@@ -580,7 +579,7 @@ void pkgSTART_SETUP(uint8_t *msg, uint32_t content_size)
     *battlefield_x = content[0];
     *battlefield_y = content[1];
 
-    *game_state = 1;
+    *game_state = 2;
 }
 
 void pkgSTATE(uint8_t *msg, uint32_t content_size)
@@ -639,7 +638,7 @@ void pkgSTART_GAME(uint8_t *msg, uint32_t content_size)
     *battlefield_x = content[0];
     *battlefield_y = content[1];
 
-    *game_state = 2;
+    *game_state = 3;
 }
 
 void pkgTEV_JAIET(uint8_t *msg, uint32_t content_size)
