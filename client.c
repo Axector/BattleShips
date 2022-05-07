@@ -430,8 +430,8 @@ void drawShipsToPlace()
     for(int i = 0; i < MAX_SHIPS/2; i++){
         if(ships_to_place[i].placed == 0){
             continue;
-        }  
-        uint8_t dir = ships_to_place[i].dir;  
+        }
+        uint8_t dir = ships_to_place[i].dir;
         uint8_t dx = (dir == 1) ? 1 : (dir == 3) ? -1 : 0;
         uint8_t dy = (dir == 0) ? -1 : (dir == 2) ? 1 : 0;
         for(int a = 0; a < 6 - ships_to_place[i].type; a++){
@@ -499,7 +499,6 @@ void gameloop()
 
         uint8_t input[MAX_PACKAGE_SIZE];
         uint32_t nread = read(*server_socket, input, MAX_PACKAGE_SIZE);
-        printf("%d\n", nread);
         if(unpackPackage(input, nread, *last_package_npk, *is_little_endian) == -1) {
             continue;
         }
@@ -568,11 +567,11 @@ void processPackage(uint8_t *msg)
     *need_redisplay = 1;
 }
 
-struct ShipToPlace* findShipToPlace(struct ShipToPlace* ships, uint8_t type, uint8_t team_id)
+struct ShipToPlace* findShipToPlace(struct ShipToPlace* ships_arr, uint8_t type, uint8_t team_id)
 {
     for (int i = 0; i < MAX_SHIPS/2; i++) {
-        if (ships[i].type == type && ships[i].team_id == team_id) {
-            return &ships[i];
+        if (ships_arr[i].type == type && ships_arr[i].team_id == team_id) {
+            return &ships_arr[i];
         }
     }
     return NULL;
@@ -616,20 +615,6 @@ void pkgSTART_SETUP(uint8_t *msg, uint32_t content_size)
     *battlefield_x = content[0];
     *battlefield_y = content[1];
 
-    int ships_to_place_i = 0;
-    for (int i = 0; i < MAX_SHIPS; i++) {
-        if (ships[i].team_id == *this_teamID) {
-            ships_to_place[ships_to_place_i].placed = 0;
-            ships_to_place[ships_to_place_i].type = ships[i].type;
-            ships_to_place[ships_to_place_i].x = ships[i].x;
-            ships_to_place[ships_to_place_i].y = ships[i].y;
-            ships_to_place[ships_to_place_i].dir = ships[i].dir;
-            ships_to_place[ships_to_place_i].team_id = ships[i].team_id;
-            ships_to_place[ships_to_place_i].damage = ships[i].damage;
-            ships_to_place_i++;
-        }
-    }
-
     *game_state = 2;
 }
 
@@ -663,8 +648,24 @@ void pkgTEV_JALIEK(uint8_t *msg, uint32_t content_size)
         return;
     }
 
+    int ships_to_place_i = 0;
+    for (int i = 0; i < MAX_SHIPS; i++) {
+        if (ships[i].team_id == *this_teamID) {
+            ships_to_place[ships_to_place_i].placed = 0;
+            ships_to_place[ships_to_place_i].type = ships[i].type;
+            ships_to_place[ships_to_place_i].x = ships[i].x;
+            ships_to_place[ships_to_place_i].y = ships[i].y;
+            ships_to_place[ships_to_place_i].dir = ships[i].dir;
+            ships_to_place[ships_to_place_i].team_id = ships[i].team_id;
+            ships_to_place[ships_to_place_i].damage = ships[i].damage;
+            ships_to_place_i++;
+        }
+    }
+
     struct ShipToPlace* ship = findShipToPlace(ships_to_place, content[1], *this_teamID);
-    printf("%d\n", ship->type);
+    if (ship == NULL) {
+        return;
+    }
     ship->x = (*this_teamID == 1) ? 32 : *battlefield_x - 32;
     ship->y = 32;
 }
