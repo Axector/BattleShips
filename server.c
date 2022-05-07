@@ -592,7 +592,7 @@ void pkgTEV_JALIEK(int socket)
 
     if (*count_active_ships >= MAX_SHIPS) {
         *count_active_player = 0;
-        *count_active_ships = 2;
+        *count_active_ships = 0;
 
         msg[0] = 0;
         msg[1] = 0;
