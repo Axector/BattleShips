@@ -2,7 +2,7 @@
 #define UTILS_H
 
 #define PORT 12345
-#define MAX_PACKAGE_SIZE 1024 * 131
+#define MAX_PACKAGE_SIZE 1024 * 140
 #define SHARED_MEMORY_SIZE 1024 * 1024
 #define MAX_PLAYER_NAME_LEN 32
 #define MAX_PLAYERS 10
@@ -48,7 +48,7 @@ void printArray(uint8_t *array, uint32_t size);
 
 char isLittleEndianSystem();
 struct Player* findPlayerById(struct Player* players, uint8_t id);
-struct Ship* findShipByIdAndTeamId(struct Ship* ships, uint8_t type, uint8_t team_id, uint8_t size);
+struct Ship* findShipByIdAndTeamId(struct Ship* ships, uint8_t type, uint8_t team_id);
 void getShipData(uint8_t type, uint8_t *speed, uint8_t *range, uint8_t *is_dir);
 
 uint8_t* preparePackage(uint32_t npk, uint8_t type, uint8_t *content, uint32_t *content_size, uint32_t content_max_size, char is_little_endian);

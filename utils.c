@@ -33,9 +33,9 @@ struct Player* findPlayerById(struct Player* players, uint8_t id)
     return NULL;
 }
 
-struct Ship* findShipByIdAndTeamId(struct Ship* ships, uint8_t type, uint8_t team_id, uint8_t size)
+struct Ship* findShipByIdAndTeamId(struct Ship* ships, uint8_t type, uint8_t team_id)
 {
-    for (int i = 0; i < size; i++) {
+    for (int i = 0; i < MAX_SHIPS; i++) {
         if (ships[i].type == type && ships[i].team_id == team_id) {
             return &ships[i];
         }
@@ -113,12 +113,13 @@ uint8_t* preparePackage(uint32_t npk, uint8_t type, uint8_t *content, uint32_t *
 
     escapePackage(message, &msg_size);
 
+    printf("%d\n", msg_size);
+
     uint8_t *package = malloc(msg_size);
     for (int i = 0; i < msg_size; i++) {
         package[i] = message[i];
     }
     free(message);
-
     *content_size = msg_size;
     return package;
 }

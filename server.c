@@ -416,20 +416,20 @@ void placeObjectOnBattlefield(uint8_t id, uint8_t x, uint8_t y)
         return;
     }
 
-    battlefield[x * BATTLEFIELD_X_MAX + y] = id;
+    battlefield[x + y * BATTLEFIELD_X_MAX] = id;
 }
 
 uint8_t getBattlefieldObject(uint8_t x, uint8_t y)
 {
-    return battlefield[x * BATTLEFIELD_X_MAX + y];
+    return battlefield[x + y * BATTLEFIELD_X_MAX];
 }
 
 void placeShip(struct Ship* ship)
 {
     // TODO Check ship position
 
-    uint8_t dx = (ship->dir == 1) ? 1 : (ship->dir == 3) ? -1 : 0;
-    uint8_t dy = (ship->dir == 0) ? -1 : (ship->dir == 2) ? 1 : 0;
+    char dx = (ship->dir == 1) ? 1 : (ship->dir == 3) ? -1 : 0;
+    char dy = (ship->dir == 0) ? -1 : (ship->dir == 2) ? 1 : 0;
 
     for (int i = 0; i < 6 - ship->type; i++) {
         placeObjectOnBattlefield(ship->type, ship->x + i * dx, ship->y + i * dy);
@@ -607,7 +607,7 @@ void pkgES_LIEKU(uint8_t *msg, uint32_t content_size, int socket)
     }
 
     player->active = 0;
-    struct Ship* ship = findShipByIdAndTeamId(ships, content[1], player->team_id, MAX_SHIPS);
+    struct Ship* ship = findShipByIdAndTeamId(ships, content[1], player->team_id);
     ship->x = content[2];
     ship->y = content[3];
     ship->dir = content[4];
