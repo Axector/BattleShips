@@ -12,6 +12,16 @@
 
 #define HOST "127.0.0.1" /* localhost */
 
+struct ShipToPlace {
+    uint8_t type;
+    uint8_t x;
+    uint8_t y;
+    uint8_t dir;
+    uint8_t team_id;
+    uint8_t damage;
+    uint8_t placed;
+};
+
 /// Variables
 int quartal_map[4][4];
 
@@ -34,7 +44,7 @@ struct Player *players = NULL;
 struct Ship *ships = NULL;
 
 uint8_t *plane = NULL;
-struct Ship *ships_to_place = NULL;
+struct ShipToPlace *ships_to_place = NULL;
 uint8_t *battlefield_x = NULL;
 uint8_t *battlefield_y = NULL;
 uint8_t *battlefield = NULL;
@@ -53,12 +63,15 @@ void inputField();
 void outlineCube();
 void filledCube(int x, int y);
 void quartalMap();
+void drawShipsToPlace();
 void createPlane();
 
 void getSharedMemory();
 void gameloop();
 int clientConnect();
 void processPackage(uint8_t *msg);
+
+struct ShipToPlace* findShipToPlace(struct ShipToPlace* ships, uint8_t type, uint8_t team_id);
 
 // Package types
 void pkgACK(uint8_t *msg, uint32_t content_size);                       // 1
@@ -152,8 +165,9 @@ void display()
     else if(*game_state == 1) {
         lobby("Not Ready", "Ready");
     }
-    else{
+    else if(*game_state == 2){
         createPlane();
+        drawShipsToPlace();
     }
     glutSwapBuffers();
 }
@@ -411,17 +425,27 @@ void quartalMap()
     }
 }
 
+void drawShipsToPlace()
+{
+    for(int i = 0; i < MAX_SHIPS/2; i++){
+        if(ships_to_place[i].placed == 0){
+            continue;
+        }  
+        uint8_t dir = ships_to_place[i].dir;  
+        uint8_t dx = (dir == 1) ? 1 : (dir == 3) ? -1 : 0;
+        uint8_t dy = (dir == 0) ? -1 : (dir == 2) ? 1 : 0;
+        for(int a = 0; a < 6 - ships_to_place[i].type; a++){
+            filledCube(ships_to_place[i].x + a*dx, ships_to_place[i].y + a*dy);
+        }
+    }
+}
+
 void createPlane()
 {
     printConnectedUsers();
     outlineCube();
     quartalMap();
     printText("Battlefield", 2.5, 9.5);
-    for(int i = 0; i < 4; i++){
-        battlefield[9*256+(i+1)] = 1;
-    }
-    battlefield[72*256+92] = 1;
-    battlefield[240*256+243] = 1;
 
     for(int i = 0; i < 64; i++) {
         for (int a = 0; a < 64; a++){
@@ -462,7 +486,7 @@ void getSharedMemory()
     battlefield_x = (uint8_t*) (shared_memory + shared_size); shared_size += sizeof(uint8_t);
     battlefield_y = (uint8_t*) (shared_memory + shared_size); shared_size += sizeof(uint8_t);
     battlefield = (uint8_t*) (shared_memory + shared_size); shared_size += sizeof(uint8_t) * BATTLEFIELD_X_MAX * BATTLEFIELD_Y_MAX;
-    ships_to_place = (struct Ship*) (shared_memory + shared_size); shared_size += sizeof(struct Ship) * (MAX_SHIPS / 2);
+    ships_to_place = (struct ShipToPlace*) (shared_memory + shared_size); shared_size += sizeof(struct ShipToPlace) * (MAX_SHIPS / 2);
     game_state = (uint8_t*) (shared_memory + shared_size); shared_size += sizeof(uint8_t);
 }
 
@@ -475,6 +499,7 @@ void gameloop()
 
         uint8_t input[MAX_PACKAGE_SIZE];
         uint32_t nread = read(*server_socket, input, MAX_PACKAGE_SIZE);
+        printf("%d\n", nread);
         if(unpackPackage(input, nread, *last_package_npk, *is_little_endian) == -1) {
             continue;
         }
@@ -543,6 +568,16 @@ void processPackage(uint8_t *msg)
     *need_redisplay = 1;
 }
 
+struct ShipToPlace* findShipToPlace(struct ShipToPlace* ships, uint8_t type, uint8_t team_id)
+{
+    for (int i = 0; i < MAX_SHIPS/2; i++) {
+        if (ships[i].type == type && ships[i].team_id == team_id) {
+            return &ships[i];
+        }
+    }
+    return NULL;
+}
+
 
 void pkgACK(uint8_t *msg, uint32_t content_size)
 {
@@ -584,7 +619,14 @@ void pkgSTART_SETUP(uint8_t *msg, uint32_t content_size)
     int ships_to_place_i = 0;
     for (int i = 0; i < MAX_SHIPS; i++) {
         if (ships[i].team_id == *this_teamID) {
-            ships_to_place[ships_to_place_i++] = ships[i];
+            ships_to_place[ships_to_place_i].placed = 0;
+            ships_to_place[ships_to_place_i].type = ships[i].type;
+            ships_to_place[ships_to_place_i].x = ships[i].x;
+            ships_to_place[ships_to_place_i].y = ships[i].y;
+            ships_to_place[ships_to_place_i].dir = ships[i].dir;
+            ships_to_place[ships_to_place_i].team_id = ships[i].team_id;
+            ships_to_place[ships_to_place_i].damage = ships[i].damage;
+            ships_to_place_i++;
         }
     }
 
@@ -621,9 +663,10 @@ void pkgTEV_JALIEK(uint8_t *msg, uint32_t content_size)
         return;
     }
 
-    struct Ship* ship = findShipByIdAndTeamId(ships_to_place, content[1], *this_teamID, MAX_SHIPS / 2);
-
-    // TODO put ship on battlefield, move and place
+    struct ShipToPlace* ship = findShipToPlace(ships_to_place, content[1], *this_teamID);
+    printf("%d\n", ship->type);
+    ship->x = (*this_teamID == 1) ? 32 : *battlefield_x - 32;
+    ship->y = 32;
 }
 
 void pkgES_LIEKU(uint8_t type, uint8_t x, uint8_t y, uint8_t dir)
