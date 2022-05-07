@@ -339,6 +339,7 @@ void processClient(uint8_t id, int socket)
         // START_GAME
         else if (*game_state == 3) {
             pkgSTART_ANY(9, socket);
+            getNextPlayer(*count_active_player)->active = 1;
             *game_state = 4;
         }
         // STATE [GAME]
@@ -591,7 +592,7 @@ void pkgTEV_JALIEK(int socket)
 
     if (*count_active_ships >= MAX_SHIPS) {
         *count_active_player = 0;
-        *count_active_ships = 0;
+        *count_active_ships = 2;
 
         msg[0] = 0;
         msg[1] = 0;
@@ -628,6 +629,7 @@ void pkgES_LIEKU(uint8_t *msg, uint32_t content_size, int socket)
 
     struct Player* player = findPlayerById(players, content[0]);
     if (player->active == 0) {
+        printf("AGAIN\n");
         pkgSTART_ANY(9, socket);
         return;
     }
@@ -652,6 +654,13 @@ void pkgES_LIEKU(uint8_t *msg, uint32_t content_size, int socket)
 void pkgTEV_JAIET(int socket)
 {
     struct Player* player = getNextPlayer(*count_active_player);
+    if (player == NULL) {
+        *count_active_player += 1;
+        if (*count_active_player >= *players_count) {
+            *count_active_player = 0;
+        }
+        return;
+    }
     struct Ship* ship = getNextShip(*count_active_ships);
 
     uint32_t content_size = 6;
