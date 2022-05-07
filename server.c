@@ -607,7 +607,7 @@ void pkgES_LIEKU(uint8_t *msg, uint32_t content_size, int socket)
     }
 
     player->active = 0;
-    struct Ship* ship = findShipByIdAndTeamId(ships, content[1], player->team_id);
+    struct Ship* ship = findShipByIdAndTeamId(ships, content[1], player->team_id, MAX_SHIPS);
     ship->x = content[2];
     ship->y = content[3];
     ship->dir = content[4];
@@ -678,6 +678,7 @@ void pkgGAJIENS(uint8_t *msg, uint32_t content_size)
         }
     }
     else if (action_type == 3) {
+        uint8_t object_type = getBattlefieldObject(x, y);
         uint8_t powerup_type = content[4];
         enum BattlefieldObj obj = Mine;
         uint8_t mine = obj;

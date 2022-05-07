@@ -33,9 +33,9 @@ struct Player* findPlayerById(struct Player* players, uint8_t id)
     return NULL;
 }
 
-struct Ship* findShipByIdAndTeamId(struct Ship* ships, uint8_t type, uint8_t team_id)
+struct Ship* findShipByIdAndTeamId(struct Ship* ships, uint8_t type, uint8_t team_id, uint8_t size)
 {
-    for (int i = 0; i < MAX_SHIPS; i++) {
+    for (int i = 0; i < size; i++) {
         if (ships[i].type == type && ships[i].team_id == team_id) {
             return &ships[i];
         }

@@ -34,6 +34,7 @@ struct Player *players = NULL;
 struct Ship *ships = NULL;
 
 uint8_t *plane = NULL;
+struct Ship *ships_to_place = NULL;
 uint8_t *battlefield_x = NULL;
 uint8_t *battlefield_y = NULL;
 uint8_t *battlefield = NULL;
@@ -461,6 +462,7 @@ void getSharedMemory()
     battlefield_x = (uint8_t*) (shared_memory + shared_size); shared_size += sizeof(uint8_t);
     battlefield_y = (uint8_t*) (shared_memory + shared_size); shared_size += sizeof(uint8_t);
     battlefield = (uint8_t*) (shared_memory + shared_size); shared_size += sizeof(uint8_t) * BATTLEFIELD_X_MAX * BATTLEFIELD_Y_MAX;
+    ships_to_place = (struct Ship*) (shared_memory + shared_size); shared_size += sizeof(struct Ship) * (MAX_SHIPS / 2);
     game_state = (uint8_t*) (shared_memory + shared_size); shared_size += sizeof(uint8_t);
 }
 
@@ -579,6 +581,13 @@ void pkgSTART_SETUP(uint8_t *msg, uint32_t content_size)
     *battlefield_x = content[0];
     *battlefield_y = content[1];
 
+    int ships_to_place_i = 0;
+    for (int i = 0; i < MAX_SHIPS; i++) {
+        if (ships[i].team_id == *this_teamID) {
+            ships_to_place[ships_to_place_i++] = ships[i];
+        }
+    }
+
     *game_state = 2;
 }
 
@@ -612,7 +621,7 @@ void pkgTEV_JALIEK(uint8_t *msg, uint32_t content_size)
         return;
     }
 
-    struct Ship* ship = findShipByIdAndTeamId(ships, content[1], *this_teamID);
+    struct Ship* ship = findShipByIdAndTeamId(ships_to_place, content[1], *this_teamID, MAX_SHIPS / 2);
 
     // TODO put ship on battlefield, move and place
 }
@@ -649,7 +658,7 @@ void pkgTEV_JAIET(uint8_t *msg, uint32_t content_size)
         return;
     }
 
-    struct Ship* ship = findShipByIdAndTeamId(ships, content[1], *this_teamID);
+    struct Ship* ship = findShipByIdAndTeamId(ships, content[1], *this_teamID, MAX_SHIPS);
 
     // TODO do something with a ship
 }
