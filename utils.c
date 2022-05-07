@@ -113,8 +113,6 @@ uint8_t* preparePackage(uint32_t npk, uint8_t type, uint8_t *content, uint32_t *
 
     escapePackage(message, &msg_size);
 
-    printf("%d\n", msg_size);
-
     uint8_t *package = malloc(msg_size);
     for (int i = 0; i < msg_size; i++) {
         package[i] = message[i];
