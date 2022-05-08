@@ -30,7 +30,8 @@ struct Player *players = NULL;          // Stores all players data
 struct Ship *ships = NULL;
 
 uint8_t *count_active_player = NULL;
-uint8_t *count_active_ships = NULL;
+uint8_t *count_active_ships_1 = NULL;
+uint8_t *count_active_ships_2 = NULL;
 uint8_t *battlefield_x = NULL;
 uint8_t *battlefield_y = NULL;
 uint8_t *battlefield = NULL;
@@ -51,7 +52,7 @@ uint8_t getBattlefieldObject(uint8_t x, uint8_t y);
 void placeShip(struct Ship* ship);
 void clearShip(struct Ship* ship);
 struct Player* getNextPlayer(uint8_t n);
-struct Ship* getNextShip(uint8_t n);
+struct Ship* getNextShip(uint8_t team_id);
 void processPackage(uint8_t *msg, int socket);
 
 // Package types
@@ -62,7 +63,7 @@ void pkgSTATE(int socket);                                              // 6
 void pkgTEV_JALIEK(int socket);                                         // 7
 void pkgES_LIEKU(uint8_t *msg, uint32_t content_size, int socket);      // 8
 void pkgTEV_JAIET(int socket);                                          // 10
-void pkgGAJIENS(uint8_t *msg, uint32_t content_size);                   // 11
+void pkgGAJIENS(uint8_t *msg, uint32_t content_size, int socket);       // 11
 
 
 int main ()
@@ -74,8 +75,7 @@ int main ()
     pid = fork();
     if (pid == 0) {
         startNetwork();
-    }
-    else {
+    } else {
         gameloop();
     }
 
@@ -112,7 +112,8 @@ void getSharedMemory()
     is_little_endian = (char*) (shared_memory + shared_size); shared_size += sizeof(char);
     players_count = (uint8_t*) (shared_memory + shared_size); shared_size += sizeof(uint8_t);
     players = (struct Player*) (shared_memory + shared_size); shared_size += sizeof(struct Player) * MAX_PLAYERS;
-    count_active_ships = (uint8_t*) (shared_memory + shared_size); shared_size += sizeof(uint8_t);
+    count_active_ships_1 = (uint8_t*) (shared_memory + shared_size); shared_size += sizeof(uint8_t);
+    count_active_ships_2 = (uint8_t*) (shared_memory + shared_size); shared_size += sizeof(uint8_t);
     ships = (struct Ship*) (shared_memory + shared_size); shared_size += sizeof(struct Ship) * MAX_SHIPS;
     count_active_player = (uint8_t*) (shared_memory + shared_size); shared_size += sizeof(uint8_t);
     battlefield_x = (uint8_t*) (shared_memory + shared_size); shared_size += sizeof(uint8_t);
@@ -168,12 +169,10 @@ void gameloop()
                 *is_ready_all = 0;
                 timer_time = 0;
                 *game_state = 1;
-            }
-            else {
+            } else {
                 timer_time++;
             }
-        }
-        else if (timer_time > 0 && *is_ready_all == 0) {
+        } else if (timer_time > 0 && *is_ready_all == 0) {
             timer_time = 0;
         }
     }
@@ -248,15 +247,13 @@ void startNetwork()
 
             if (cpid == 0) {
                 processClient(new_client_id, client_socket);
-            }
-            else {
+            } else {
                 wait(NULL);
                 removePlayer(new_client_id);
             }
 
             exit(0);
-        }
-        else {
+        } else {
             close(client_socket);
         }
     }
@@ -267,8 +264,7 @@ void processClient(uint8_t id, int socket)
     struct Player *this_player = findPlayerById(players, id);
     if (this_player != NULL) {
         printf("%s connected. ID=%d, teamID=%d\n", this_player->name, id, this_player->team_id);
-    }
-    else {
+    } else {
         printf("Ghost connected.\n");
     }
 
@@ -466,21 +462,28 @@ struct Player* getNextPlayer(uint8_t n)
     return NULL;
 }
 
-struct Ship* getNextShip(uint8_t n)
+struct Ship* getNextShip(uint8_t team_id)
 {
-    uint8_t team_id = (n % 2) ? 2 : 1;
-    for (int i = 0, j = 0; j < MAX_SHIPS; j++) {
-        if (ships[j].type != 0 && ships[j].team_id == team_id) {
-            if (i == n / 2) {
-                return &ships[j];
+    uint8_t count_ships = 0;
+    uint8_t n = (team_id == 1) ? *count_active_ships_1 : *count_active_ships_2;
+    for (int i = 0; i < MAX_SHIPS; i++) {
+        if (ships[i].team_id == team_id) {
+            if (count_ships == n) {
+                return &ships[i];
             }
-            i++;
+            count_ships++;
         }
     }
 
-    for (int j = 0; j < MAX_SHIPS; j++) {
-        if (ships[j].type != 0 && ships[j].team_id == team_id) {
-            return &ships[j];
+    if (team_id == 1) {
+        *count_active_ships_1 = 0;
+    } else {
+        *count_active_ships_2 = 0;
+    }
+
+    for (int i = 0; i < MAX_SHIPS; i++) {
+        if (ships[i].team_id == team_id) {
+            return &ships[i];
         }
     }
 
@@ -500,12 +503,12 @@ void processPackage(uint8_t *msg, int socket)
     uint8_t msg_type = getPackageType(msg);
     if (msg_type == 0) {
         pkgLABDIEN(msg, getPackageContentSize(msg, *is_little_endian), socket);
-    }
-    else if (msg_type == 4) {
+    } else if (msg_type == 4) {
         pkgREADY(msg, getPackageContentSize(msg, *is_little_endian));
-    }
-    else if (msg_type == 8) {
+    } else if (msg_type == 8) {
         pkgES_LIEKU(msg, getPackageContentSize(msg, *is_little_endian), socket);
+    } else if (msg_type == 11) {
+        pkgGAJIENS(msg, getPackageContentSize(msg, *is_little_endian), socket);
     }
 }
 
@@ -549,6 +552,7 @@ void pkgSTART_ANY(uint8_t type, int socket)
     uint8_t msg[content_size];
     msg[0] = *battlefield_x;
     msg[1] = *battlefield_y;
+
     *last_package_npk += 2;
     uint8_t* pSTART_ANY = preparePackage(*last_package_npk, type, msg, &content_size, content_size, *is_little_endian);
     write(socket, pSTART_ANY, content_size);
@@ -590,9 +594,10 @@ void pkgTEV_JALIEK(int socket)
     uint32_t content_size = 2;
     uint8_t msg[content_size];
 
-    if (*count_active_ships >= MAX_SHIPS) {
+    if (*count_active_ships_1 + *count_active_ships_2 >= MAX_SHIPS) {
         *count_active_player = 0;
-        *count_active_ships = 0;
+        *count_active_ships_1 = 0;
+        *count_active_ships_2 = 0;
 
         msg[0] = 0;
         msg[1] = 0;
@@ -612,7 +617,7 @@ void pkgTEV_JALIEK(int socket)
         }
         return;
     }
-    struct Ship* ship = getNextShip(*count_active_ships);
+    struct Ship* ship = getNextShip((*count_active_player % 2) ? 2 : 1);
 
     msg[0] = player->id;
     msg[1] = ship->type;
@@ -627,10 +632,10 @@ void pkgES_LIEKU(uint8_t *msg, uint32_t content_size, int socket)
 {
     uint8_t *content = getPackageContent(msg, content_size);
 
+    printArray(content, content_size);
+
     struct Player* player = findPlayerById(players, content[0]);
     if (player->active == 0) {
-        printf("AGAIN\n");
-        pkgSTART_ANY(9, socket);
         return;
     }
 
@@ -641,8 +646,13 @@ void pkgES_LIEKU(uint8_t *msg, uint32_t content_size, int socket)
     ship->dir = content[4];
     placeShip(ship);
 
+    if (*count_active_player % 2 == 0) {
+        *count_active_ships_1 += 1;
+    } else {
+        *count_active_ships_2 += 1;
+    }
+
     *count_active_player += 1;
-    *count_active_ships += 1;
 
     if (*count_active_player >= *players_count) {
         *count_active_player = 0;
@@ -661,7 +671,7 @@ void pkgTEV_JAIET(int socket)
         }
         return;
     }
-    struct Ship* ship = getNextShip(*count_active_ships);
+    struct Ship* ship = getNextShip((*count_active_player % 2) ? 2 : 1);
 
     uint32_t content_size = 6;
     uint8_t msg[content_size];
@@ -671,13 +681,14 @@ void pkgTEV_JAIET(int socket)
     msg[3] = ship->y;
     msg[4] = ship->dir;
     msg[5] = ship->damage;
+    player->active = 1;
 
     *last_package_npk += 1;
     uint8_t* pTEV_JAIET = preparePackage(*last_package_npk, 10, msg, &content_size, content_size, *is_little_endian);
     write(socket, pTEV_JAIET, content_size);
 }
 
-void pkgGAJIENS(uint8_t *msg, uint32_t content_size)
+void pkgGAJIENS(uint8_t *msg, uint32_t content_size, int socket)
 {
     uint8_t *content = getPackageContent(msg, content_size);
 
@@ -687,32 +698,30 @@ void pkgGAJIENS(uint8_t *msg, uint32_t content_size)
     }
 
     player->active = 0;
-    struct Ship* ship = getNextShip(*count_active_ships);
+    struct Ship* ship = getNextShip(content[0]);
 
     uint8_t action_type = content[1];
     uint8_t x = content[2];
     uint8_t y = content[3];
+    printf("%d: %d - %d\n", content[0], ship->type, action_type);
     if (action_type == 1) {
         clearShip(ship);
         ship->x = x;
         ship->y = y;
         ship->dir = content[4];
         placeShip(ship);
-    }
-    else if (action_type == 2) {
+    } else if (action_type == 2) {
         uint8_t object_type = getBattlefieldObject(x, y);
         if (object_type >= 1 && object_type <= 5) {
             enum BattlefieldObj obj = Hit;
             placeObjectOnBattlefield(obj, x, y);
 
             // TODO deal damage to the ship
-        }
-        else {
+        } else {
             enum BattlefieldObj obj = HitNot;
             placeObjectOnBattlefield(obj, x, y);
         }
-    }
-    else if (action_type == 3) {
+    } else if (action_type == 3) {
         uint8_t object_type = getBattlefieldObject(x, y);
         uint8_t powerup_type = content[4];
         enum BattlefieldObj obj = Mine;
@@ -721,25 +730,37 @@ void pkgGAJIENS(uint8_t *msg, uint32_t content_size)
         uint8_t rocket = obj;
         if (powerup_type == mine) {
             placeObjectOnBattlefield(mine, x, y);
-        }
-        else if (powerup_type == rocket) {
+        } else if (powerup_type == rocket) {
             if (object_type >= 1 && object_type <= 5) {
                 enum BattlefieldObj obj = Hit;
                 placeObjectOnBattlefield(obj, x, y);
 
                 // TODO deal damage to the ship
-            }
-            else {
+            } else {
                 enum BattlefieldObj obj = HitNot;
                 placeObjectOnBattlefield(obj, x, y);
             }
         }
     }
 
+    if (*count_active_player % 2 == 0) {
+        *count_active_ships_1 += 1;
+    } else {
+        *count_active_ships_2 += 1;
+    }
+
     *count_active_player += 1;
-    *count_active_ships += 1;
 
     if (*count_active_player >= *players_count) {
         *count_active_player = 0;
     }
+
+    if (*count_active_ships_1 >= MAX_SHIPS / 2) {
+        *count_active_ships_1 = 0;
+    }
+    if (*count_active_ships_2 >= MAX_SHIPS / 2) {
+        *count_active_ships_2 = 0;
+    }
+
+    pkgTEV_JAIET(socket);
 }
