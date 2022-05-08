@@ -153,8 +153,16 @@ void gameloop()
             exit(0);
         }
 
-        if (*players_count == 0) {
+        if (*game_state != 0 && *players_count == 0) {
             *game_state = 0;
+
+            *count_active_player = 0;
+            *count_active_ships_1 = 0;
+            *count_active_ships_2 = 0;
+
+            for (int i = 0; i < BATTLEFIELD_X_MAX * BATTLEFIELD_Y_MAX; i++) {
+                battlefield[i] = 0;
+            }
         }
 
         // Calculate server time
@@ -632,8 +640,6 @@ void pkgES_LIEKU(uint8_t *msg, uint32_t content_size, int socket)
 {
     uint8_t *content = getPackageContent(msg, content_size);
 
-    printArray(content, content_size);
-
     struct Player* player = findPlayerById(players, content[0]);
     if (player->active == 0) {
         return;
@@ -703,7 +709,6 @@ void pkgGAJIENS(uint8_t *msg, uint32_t content_size, int socket)
     uint8_t action_type = content[1];
     uint8_t x = content[2];
     uint8_t y = content[3];
-    printf("%d: %d - %d\n", content[0], ship->type, action_type);
     if (action_type == 1) {
         clearShip(ship);
         ship->x = x;
@@ -713,32 +718,24 @@ void pkgGAJIENS(uint8_t *msg, uint32_t content_size, int socket)
     } else if (action_type == 2) {
         uint8_t object_type = getBattlefieldObject(x, y);
         if (object_type >= 1 && object_type <= 5) {
-            enum BattlefieldObj obj = Hit;
-            placeObjectOnBattlefield(obj, x, y);
+            placeObjectOnBattlefield((enum BattlefieldObj) Hit, x, y);
 
             // TODO deal damage to the ship
         } else {
-            enum BattlefieldObj obj = HitNot;
-            placeObjectOnBattlefield(obj, x, y);
+            placeObjectOnBattlefield((enum BattlefieldObj) HitNot, x, y);
         }
     } else if (action_type == 3) {
         uint8_t object_type = getBattlefieldObject(x, y);
         uint8_t powerup_type = content[4];
-        enum BattlefieldObj obj = Mine;
-        uint8_t mine = obj;
-        obj = Rocket;
-        uint8_t rocket = obj;
-        if (powerup_type == mine) {
-            placeObjectOnBattlefield(mine, x, y);
-        } else if (powerup_type == rocket) {
+        if (powerup_type == (enum BattlefieldObj) Mine) {
+            placeObjectOnBattlefield((enum BattlefieldObj) Mine, x, y);
+        } else if (powerup_type == (enum BattlefieldObj) Rocket) {
             if (object_type >= 1 && object_type <= 5) {
-                enum BattlefieldObj obj = Hit;
-                placeObjectOnBattlefield(obj, x, y);
+                placeObjectOnBattlefield((enum BattlefieldObj) Hit, x, y);
 
                 // TODO deal damage to the ship
             } else {
-                enum BattlefieldObj obj = HitNot;
-                placeObjectOnBattlefield(obj, x, y);
+                placeObjectOnBattlefield((enum BattlefieldObj) HitNot, x, y);
             }
         }
     }

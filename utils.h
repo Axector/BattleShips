@@ -49,7 +49,7 @@ void printArray(uint8_t *array, uint32_t size);
 char isLittleEndianSystem();
 struct Player* findPlayerById(struct Player* players, uint8_t id);
 struct Ship* findShipByIdAndTeamId(struct Ship* ships, uint8_t type, uint8_t team_id);
-void getShipData(uint8_t type, uint8_t *speed, uint8_t *range, uint8_t *is_dir);
+void getShipData(uint8_t type, uint8_t *speed, uint16_t *range, uint8_t *is_dir);
 
 uint8_t* preparePackage(uint32_t npk, uint8_t type, uint8_t *content, uint32_t *content_size, uint32_t content_max_size, char is_little_endian);
 void escapePackage(uint8_t *msg, uint32_t *msg_size);
