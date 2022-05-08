@@ -84,6 +84,7 @@ void addShipsToPlace();
 void removeShipsToPlace();
 char checkEnemyShip(uint8_t x, uint8_t y);
 char isPlacingShip(uint8_t x, uint8_t y);
+char isOurTeamShip(uint8_t x, uint8_t y);
 void setPlaneToShip(struct ShipToPlace* ship_to_place);
 
 // Package types
@@ -501,12 +502,14 @@ void keyboard(unsigned char key, int x, int y)
             ship->x = current_ship->x;
             ship->y = current_ship->y;
             ship->dir = current_ship->dir;
+            getShipData(ship->type, current_ship_speed, current_ship_range, current_ship_is_dir);
             setPlaneToShip(ship);
         } else if(key == '3') {
             *action_state = 2;
             ship->x = current_ship->x;
             ship->y = current_ship->y;
             ship->dir = current_ship->dir;
+            getShipData(ship->type, current_ship_speed, current_ship_range, current_ship_is_dir);
             setPlaneToShip(ship);
         } else if (*action_state == 0) {
             if (key == ',' && ship->type != 5) {
@@ -892,7 +895,9 @@ void createPlane()
                 if (isPlacingShip((x+64*koef_x), (y+64*koef_y))) {
                     filledCube(x, y, 0.0f, 0.5f, 0.0f);
                 } else {
-                    filledCube(x, y, 0.0f, 0.0f, 0.0f);
+                    if (isOurTeamShip((x+64*koef_x), (y+64*koef_y))) {
+                        filledCube(x, y, 0.0f, 0.0f, 0.0f);
+                    }
                 }
             } else if (battlefield_object == (enum BattlefieldObj) Rocks) {
                 filledCube(x, y, 0.30f, 0.19f, 0.2f);
@@ -1077,6 +1082,30 @@ char isPlacingShip(uint8_t x, uint8_t y)
     return 0;
 }
 
+char isOurTeamShip(uint8_t x, uint8_t y)
+{
+    if (*this_teamID == 0) {
+        return 1;
+    }
+
+    for (int i = 0; i < MAX_SHIPS; i++) {
+        uint8_t dir = ships[i].dir;
+        char dx = (dir == 1) ? 1 : (dir == 3) ? -1 : 0;
+        char dy = (dir == 0) ? -1 : (dir == 2) ? 1 : 0;
+        for (int a = 0; a < 6 - ships[i].type; a++) {
+            if (
+                (ships[i].x + a*dx) == x &&
+                (ships[i].y + a*dy) == y &&
+                ships[i].team_id == *this_teamID
+            ) {
+                return 1;
+            }
+        }
+
+    }
+    return 0;
+}
+
 void setPlaneToShip(struct ShipToPlace* ship_to_place)
 {
     for (int x = 0; x < 4; x++) {
@@ -1107,7 +1136,7 @@ void pkgACK(uint8_t *msg, uint32_t content_size)
     }
 
     if (*this_teamID == 0) {
-        *game_state = 3;
+        *game_state = 4;
     }
 
     printf("ID: %d\nTEAM: %d\n", *this_ID, *this_teamID);
@@ -1226,6 +1255,7 @@ void pkgTEV_JALIEK(uint8_t *msg, uint32_t content_size)
     ship->placed = 1;
     *plane = (*this_teamID == 1) ? 0 : 3;
     current_ship->type = ship->type;
+    current_ship->team_id = *this_teamID;
 }
 
 void pkgES_LIEKU(uint8_t type, uint8_t x, uint8_t y, uint8_t dir)
