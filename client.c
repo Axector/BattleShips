@@ -896,13 +896,13 @@ void createPlane()
                     filledCube(x, y, 0.0f, 0.5f, 0.0f);
                 } else {
                     if (isOurTeamShip((x+64*koef_x), (y+64*koef_y))) {
-                        filledCube(x, y, 0.0f, 0.0f, 0.0f);
+                        filledCube(x, y, 0.0f, 0.0f, 0.3f);
                     }
                 }
             } else if (battlefield_object == (enum BattlefieldObj) Rocks) {
-                filledCube(x, y, 0.30f, 0.19f, 0.2f);
+                filledCube(x, y, 0.30f, 0.2f, 0.2f);
             } else if (battlefield_object != 0) {
-                filledCube(x, y, 0.0f, 0.0f, 0.0f);
+                filledCube(x, y, 0.1f, 0.1f, 0.1f);
             }
         }
     }
