@@ -12,6 +12,16 @@
 
 #define HOST "127.0.0.1" /* localhost */
 
+struct ShipToPlace {
+    uint8_t type;
+    uint8_t x;
+    uint8_t y;
+    uint8_t dir;
+    uint8_t team_id;
+    uint8_t damage;
+    uint8_t placed;
+};
+
 /// Variables
 int quartal_map[4][4];
 
@@ -21,9 +31,9 @@ int *server_socket = NULL;
 uint32_t *last_package_npk = NULL;      // NPK for packages
 
 char *to_exit = NULL;
-char *name_is_ready = NULL;
 char *need_redisplay = NULL;
 char *is_little_endian = NULL;
+char *to_get_ships = NULL;
 
 uint8_t *this_ID = NULL;
 uint8_t *this_teamID = NULL;
@@ -34,11 +44,18 @@ uint8_t *players_count = NULL;
 struct Player *players = NULL;
 struct Ship *ships = NULL;
 
+uint8_t *menu_state = NULL;
 uint8_t *plane = NULL;
+struct ShipToPlace *ships_to_place = NULL;
 uint8_t *battlefield_x = NULL;
 uint8_t *battlefield_y = NULL;
 uint8_t *battlefield = NULL;
 uint8_t *game_state = NULL;
+uint8_t *action_state = NULL;
+struct Ship *current_ship = NULL;
+uint8_t *current_ship_speed = NULL;
+uint8_t *current_ship_range = NULL;
+uint8_t *current_ship_is_dir = NULL;
 
 /// Functions in thit file
 void glMain(int argc, char *argv[]);
@@ -47,11 +64,12 @@ void specialKeyboard(int key, int x, int y);
 void keyboard(unsigned char key, int x, int y);
 void closeFunc();
 void printText(char *text, double x, double y);
-void lobby(char *not_ready, char *ready);
+void loadingScreen();
+void lobby();
 void printConnectedUsers();
 void inputField();
 void outlineCube();
-void filledCube(int x, int y);
+void filledCube(int x, int y, double r, double g, double b);
 void quartalMap();
 void createPlane();
 
@@ -59,6 +77,10 @@ void getSharedMemory();
 void gameloop();
 int clientConnect();
 void processPackage(uint8_t *msg);
+
+struct ShipToPlace* findShipToPlace(struct ShipToPlace* ships, uint8_t type, uint8_t team_id);
+void addShipsToPlace();
+char checkEnemyShip(uint8_t x, uint8_t y);
 
 // Package types
 void pkgACK(uint8_t *msg, uint32_t content_size);                       // 1
@@ -96,7 +118,7 @@ int main(int argc, char *argv[])
         }
     }
 
-    while(*name_is_ready == 0) {
+    while(*game_state == 0) {
         if (*to_exit == 1) {
             exit(0);
         }
@@ -119,7 +141,7 @@ int main(int argc, char *argv[])
 
 void resize(int width, int height) {
     glutReshapeWindow(1400, 800);
-    glutPositionWindow(100, 100);
+    //glutPositionWindow(100, 100);
 }
 
 
@@ -146,94 +168,227 @@ void display()
 {
     glClearColor(0.5, 0.5, 0.5, 0.0);
     glClear(GL_COLOR_BUFFER_BIT);
-    if(*name_is_ready == 0){
+    if(*game_state == 0){
         inputField();
-    }else{
-        if(*game_state != 1){
-            lobby("Not Ready", "Ready");
-        }else{
-            createPlane();
-        }
+    } else if (*game_state == 1 || *game_state == 3) {
+        loadingScreen();
+    } else if (*game_state == 2) {
+        lobby();
+    } else if (*game_state == 4 || *game_state == 6) {
+        createPlane();
     }
     glutSwapBuffers();
 }
 
 void specialKeyboard(int key, int x, int y)
 {
-    if(*game_state == 1){
+    if((*game_state == 4 || *game_state == 6) && *menu_state == 1){
         if (key == GLUT_KEY_UP) {
-            int found = 0;
-            for(int i = 0; i < 4; i++){
-                for(int a = 0; a < 4; a++){
-                    if(quartal_map[i][a] == 1){
-                        if(i != 0){
-                            quartal_map[i][a] = 0;
-                            quartal_map[i-1][a] = 1;
-                            *plane = *plane - 4;
-                            found = 1;
-                            break;
-                        }
-                    }
-                }
-                if(found == 1){
-                    break;
-                }
+            if (*plane - 4 < 0) {
+                return;
             }
+
+            *plane -= 4;
         }
         if (key == GLUT_KEY_DOWN) {
-            int found = 0;
-            for(int i = 0; i < 4; i++){
-                for(int a = 0; a < 4; a++){
-                    if(quartal_map[i][a] == 1){
-                        if(i != 3){
-                            quartal_map[i][a] = 0;
-                            quartal_map[i+1][a] = 1;
-                            *plane = *plane + 4;
-                            found = 1;
-                            break;
-                        }
-                    }
-                }
-                if(found == 1){
-                    break;
-                }
+            if (*plane + 4 >= 16) {
+                return;
             }
+
+            *plane += 4;
         }
         if (key == GLUT_KEY_LEFT) {
-            int found = 0;
-            for(int i = 0; i < 4; i++){
-                for(int a = 0; a < 4; a++){
-                    if(quartal_map[i][a] == 1){
-                        if(a != 0){
-                            quartal_map[i][a] = 0;
-                            quartal_map[i][a-1] = 1;
-                            *plane = *plane - 1;
-                            found = 1;
-                            break;
-                        }
-                    }
-                }
-                if(found == 1){
-                    break;
-                }
+            if (
+                (*plane % 4 - 1 < 0) ||
+                (*game_state == 4 && *this_teamID == 1 && *plane % 4 - 1 < 0) ||
+                (*game_state == 4 && *this_teamID == 2 && *plane % 4 - 1 < 2)
+            ) {
+                return;
             }
+
+            *plane -= 1;
         }
         if (key == GLUT_KEY_RIGHT) {
-            int found = 0;
-            for(int i = 0; i < 4; i++){
-                for(int a = 0; a < 4; a++){
-                    if(quartal_map[i][a] == 1){
-                        if(a != 3){
-                            quartal_map[i][a] = 0;
-                            quartal_map[i][a+1] = 1;
-                            *plane = *plane + 1;
-                            found = 1;
-                            break;
-                        }
-                    }
+            if (
+                (*plane % 4 + 1 >= 4) ||
+                (*game_state == 4 && *this_teamID == 1 && *plane % 4 + 1 >= 2) ||
+                (*game_state == 4 && *this_teamID == 2 && *plane % 4 + 1 >= 4)
+            ) {
+                return;
+            }
+
+            *plane += 1;
+        }
+    } else if(*game_state == 4 && *menu_state == 0){
+        struct ShipToPlace* ship = findShipToPlace(ships_to_place, current_ship->type, *this_teamID);
+        if (ship == NULL) {
+            return;
+        }
+
+        printf("ship: [%d, %d]\n", ship->x, ship->y);
+        printf("plane: [%d, %d]\n", *plane % 4, *plane / 4);
+
+        if (key == GLUT_KEY_UP) {
+            if (
+                (ship->y - ((ship->dir == 0) ? 6 - ship->type - 1 : 0)) <= 0
+            ) {
+                return;
+            }
+
+            if (
+                *plane / 4 > 0 &&
+                ship->y <= (*plane / 4) * 64
+            ) {
+                *plane -= 4;
+            }
+
+            ship->y -= 1;
+        } else if (key == GLUT_KEY_DOWN) {
+            if (
+                (ship->y + ((ship->dir == 2) ? 6 - ship->type - 1 : 0)) >= *battlefield_y
+            ) {
+                return;
+            }
+
+            if (
+                *plane / 4 < 4 &&
+                ship->y >= ((*plane / 4) + 1) * 64 - 1
+            ) {
+                *plane += 4;
+            }
+
+            ship->y += 1;
+        } else if (key == GLUT_KEY_LEFT) {
+            if (
+                ((*this_teamID == 1 && (ship->x - ((ship->dir == 3) ? 6 - ship->type - 1 : 0)) <= 0) ||
+                (*this_teamID == 2 && (ship->x - ((ship->dir == 3) ? 6 - ship->type - 1 : 0)) <= (*battlefield_x / 2)))
+            ) {
+                return;
+            }
+
+            if (
+                *plane % 4 > 0 &&
+                ship->x <= (*plane % 4) * 64
+            ) {
+                *plane -= 1;
+            }
+
+            ship->x -= 1;
+        } else if (key == GLUT_KEY_RIGHT) {
+            if (
+                ((*this_teamID == 1 && (ship->x + ((ship->dir == 1) ? 6 - ship->type - 1 : 0)) >= (*battlefield_x / 2)) ||
+                (*this_teamID == 2 && (ship->x + ((ship->dir == 1) ? 6 - ship->type - 1 : 0)) >= *battlefield_x))
+            ) {
+                return;
+            }
+
+            if (
+                *plane % 4 < 4 &&
+                ship->x >= ((*plane % 4) + 1) * 64 - 1
+            ) {
+                *plane += 1;
+            }
+
+            ship->x += 1;
+        }
+    } else if(*game_state == 6 && *menu_state == 0){
+        if(key == '1'){
+            *action_state = 0;
+        } else if(key == '2'){
+            *action_state = 1;
+        } else if(key == '3'){
+            *action_state = 2;
+        }
+
+        struct ShipToPlace* ship = findShipToPlace(ships_to_place, current_ship->type, *this_teamID);
+        if(ship == NULL){
+            return;
+        }
+
+        if(*action_state == 0){
+            if (key == GLUT_KEY_UP) {
+                if ((ship->y - ((ship->dir == 0) ? 6 - ship->type - 1 : 0)) <= 0) {
+                    return;
                 }
-                if(found == 1){
-                    break;
+
+                if (
+                    *plane / 4 > 0 &&
+                    ship->y <= (*plane / 4) * 64
+                ) {
+                    *plane -= 4;
+                }
+
+                if (current_ship->y >= ship->y) {
+                    if (*current_ship_speed > 0) {
+                        ship->y -= 1;
+                        *current_ship_speed -= 1;
+                    }
+                } else if (current_ship->y <= ship->y) {
+                    ship->y -= 1;
+                    *current_ship_speed += 1;
+                }
+            } else if (key == GLUT_KEY_DOWN) {
+                if ((ship->y + ((ship->dir == 2) ? 6 - ship->type - 1 : 0)) >= *battlefield_y) {
+                    return;
+                }
+
+                if (
+                    *plane / 4 < 4 &&
+                    ship->y >= ((*plane / 4) + 1) * 64 - 1
+                ) {
+                    *plane += 4;
+                }
+
+                if (current_ship->y <= ship->y) {
+                    if (*current_ship_speed > 0) {
+                        ship->y += 1;
+                        *current_ship_speed -= 1;
+                    }
+                } else if (current_ship->y >= ship->y) {
+                    ship->y += 1;
+                    *current_ship_speed += 1;
+                }
+            } else if (key == GLUT_KEY_LEFT) {
+                if ((ship->x - ((ship->dir == 3) ? 6 - ship->type - 1 : 0)) <= 0) {
+                    return;
+                }
+
+                if (
+                    *plane % 4 > 0 &&
+                    ship->x <= (*plane % 4) * 64
+                ) {
+                    *plane -= 1;
+                }
+
+                if (current_ship->x >= ship->x) {
+                    if (*current_ship_speed > 0) {
+                        ship->x -= 1;
+                        *current_ship_speed -= 1;
+                    }
+                } else if (current_ship->x <= ship->x) {
+                    ship->x -= 1;
+                    *current_ship_speed += 1;
+                }
+            } else if (key == GLUT_KEY_RIGHT) {
+                if ((ship->x + ((ship->dir == 1) ? 6 - ship->type - 1 : 0)) >= *battlefield_x) {
+                    return;
+                }
+
+                if (
+                    *plane % 4 < 4 &&
+                    ship->x >= ((*plane % 4) + 1) * 64 - 1
+                ) {
+                    *plane += 1;
+                }
+
+                if (current_ship->x <= ship->x) {
+                    if (*current_ship_speed > 0) {
+                        ship->x += 1;
+                        *current_ship_speed -= 1;
+                    }
+                } else if (current_ship->x >= ship->x) {
+                    ship->x += 1;
+                    *current_ship_speed += 1;
                 }
             }
         }
@@ -244,35 +399,227 @@ void specialKeyboard(int key, int x, int y)
 
 void keyboard(unsigned char key, int x, int y)
 {
-    if(*name_is_ready == 0){
+    if(*game_state == 0){
         if(key == 13){
-            *name_is_ready = 1;
-        }else if(key == 8){
-            for(int i = 0;i < 32; i++){
-                if(player_name[i] == '\0'){
-                    player_name[i-1] = '\0';
-                    *player_name_len = i-1;
-                    break;
-                }
+            if (player_name[0] == 0) {
+                return;
             }
-        }else{
-            for(int i = 0;i < 32; i++){
-                if(player_name[i] == '\0'){
-                    player_name[i] = key;
-                    *player_name_len = i+1;
-                    break;
-                }
+
+            *game_state = 1;
+        } else if(key == 8){
+            if (*player_name_len > 0) {
+                player_name[*player_name_len - 1] = 0;
+                *player_name_len -= 1;
+            }
+        } else{
+            if (
+                *player_name_len < MAX_PLAYER_NAME_LEN &&
+                ((key >= 'A' && key <= 'Z') ||
+                (key >= 'a' && key <= 'z') ||
+                (key >= '0' && key <= '9') ||
+                (key == '_' || key == '-'))
+            ) {
+                player_name[*player_name_len] = key;
+                *player_name_len += 1;
             }
         }
-    }else{
-        if(key == 'r'){
+    } else if (*game_state == 2) {
+        if(key == 'r') {
             uint8_t msg[2];
             msg[0] = *this_ID;
             msg[1] = (findPlayerById(players, *this_ID)->is_ready == 1) ? 0 : 1;
             uint32_t content_size = 2;
-            *last_package_npk += 1;
+            *last_package_npk += 2;
             uint8_t* pENTER = preparePackage(*last_package_npk, 4, msg, &content_size, content_size, *is_little_endian);
             write(*server_socket, pENTER, content_size);
+        }
+    } else if(*game_state == 4) {
+        struct ShipToPlace* ship = findShipToPlace(ships_to_place, current_ship->type, *this_teamID);
+        if (ship == NULL) {
+            return;
+        }
+        if (key == ',') {
+            if ((
+                ship->dir == 0 &&
+                ((*this_teamID == 1 && ship->x - (6 - ship->type - 1) < 0) ||
+                (*this_teamID == 2 && ship->x - (6 - ship->type - 1) <= (*battlefield_x / 2)))
+            ) || (
+                ship->dir == 1 &&
+                ship->y - (6 - ship->type - 1) < 0
+            ) || (
+                ship->dir == 2 &&
+                ((*this_teamID == 1 && ship->x + (6 - ship->type - 1) > (*battlefield_x / 2)) ||
+                (*this_teamID == 2 && ship->x + (6 - ship->type - 1) > *battlefield_x))
+            ) || (
+                ship->dir == 3 &&
+                ship->y + (6 - ship->type - 1) > *battlefield_y
+            )) {
+                return;
+            }
+
+            ship->dir = (ship->dir == 0) ? 3 : ship->dir - 1;
+        } else if(key == '.') {
+            if ((
+                ship->dir == 0 &&
+                ship->x + (6 - ship->type - 1) > *battlefield_x
+            ) || (
+                ship->dir == 1 &&
+                ship->y + (6 - ship->type - 1) > *battlefield_y
+            ) || (
+                ship->dir == 2 &&
+                ship->x - (6 - ship->type - 1) < 0
+            ) || (
+                ship->dir == 3 &&
+                ship->y - (6 - ship->type - 1) < 0
+            )) {
+                return;
+            }
+
+            ship->dir = (ship->dir == 3) ? 0 : ship->dir + 1;
+        } else if(key == 13) {
+            pkgES_LIEKU(ship->type, ship->x, ship->y, ship->dir);
+        }
+    } else if (*game_state == 6) {
+        struct ShipToPlace* ship = findShipToPlace(ships_to_place, current_ship->type, *this_teamID);
+        if (ship == NULL) {
+            return;
+        }
+        if (key == ',') {
+            if ((
+                ship->dir == 0 &&
+                ship->x - (6 - ship->type - 1) < 0
+            ) || (
+                ship->dir == 1 &&
+                ship->y - (6 - ship->type - 1) < 0
+            ) || (
+                ship->dir == 2 &&
+                ship->x + (6 - ship->type - 1) > *battlefield_x
+            ) || (
+                ship->dir == 3 &&
+                ship->y + (6 - ship->type - 1) > *battlefield_y
+            )) {
+                return;
+            }
+
+            if (current_ship->dir == 0) {
+                if (ship->dir == 0 || ship->dir == 3) {
+                    if (*current_ship_speed <= 0) {
+                        return;
+                    }
+                    *current_ship_speed -= 1;
+                } else if (ship->dir == 2 || ship->dir == 1) {
+                    *current_ship_speed += 1;
+                }
+            } else if (current_ship->dir == 1) {
+                if (ship->dir == 1 || ship->dir == 0) {
+                    if (*current_ship_speed <= 0) {
+                        return;
+                    }
+                    *current_ship_speed -= 1;
+                } else if (ship->dir == 3 || ship->dir == 2) {
+                    *current_ship_speed += 1;
+                }
+            } else if (current_ship->dir == 2) {
+                if (ship->dir == 2 || ship->dir == 1) {
+                    if (*current_ship_speed <= 0) {
+                        return;
+                    }
+                    *current_ship_speed -= 1;
+                } else if (ship->dir == 0 || ship->dir == 3) {
+                    *current_ship_speed += 1;
+                }
+            } else if (current_ship->dir == 3) {
+                if (ship->dir == 3 || ship->dir == 2) {
+                    if (*current_ship_speed <= 0) {
+                        return;
+                    }
+                    *current_ship_speed -= 1;
+                } else if (ship->dir == 1 || ship->dir == 0) {
+                    *current_ship_speed += 1;
+                }
+            }
+
+            ship->dir = (ship->dir == 0) ? 3 : ship->dir - 1;
+        } else if(key == '.') {
+            if ((
+                ship->dir == 0 &&
+                ((*this_teamID == 1 && ship->x + (6 - ship->type - 1) > (*battlefield_x / 2)) ||
+                (*this_teamID == 2 && ship->x + (6 - ship->type - 1) > *battlefield_x))
+            ) || (
+                ship->dir == 1 &&
+                ship->y + (6 - ship->type - 1) > *battlefield_y
+            ) || (
+                ship->dir == 2 &&
+                ((*this_teamID == 1 && ship->x - (6 - ship->type - 1) < 0) ||
+                (*this_teamID == 2 && ship->x - (6 - ship->type - 1) <= (*battlefield_x / 2)))
+            ) || (
+                ship->dir == 3 &&
+                ship->y - (6 - ship->type - 1) < 0
+            )) {
+                return;
+            }
+
+            if (current_ship->dir == 0) {
+                if (ship->dir == 0 || ship->dir == 1) {
+                    if (*current_ship_speed <= 0) {
+                        return;
+                    }
+                    *current_ship_speed -= 1;
+                } else if (ship->dir == 2 || ship->dir == 3) {
+                    *current_ship_speed += 1;
+                }
+            } else if (current_ship->dir == 1) {
+                if (ship->dir == 1 || ship->dir == 2) {
+                    if (*current_ship_speed <= 0) {
+                        return;
+                    }
+                    *current_ship_speed -= 1;
+                } else if (ship->dir == 3 || ship->dir == 0) {
+                    *current_ship_speed += 1;
+                }
+            } else if (current_ship->dir == 2) {
+                if (ship->dir == 2 || ship->dir == 3) {
+                    if (*current_ship_speed <= 0) {
+                        return;
+                    }
+                    *current_ship_speed -= 1;
+                } else if (ship->dir == 0 || ship->dir == 1) {
+                    *current_ship_speed += 1;
+                }
+            } else if (current_ship->dir == 3) {
+                if (ship->dir == 3 || ship->dir == 0) {
+                    if (*current_ship_speed <= 0) {
+                        return;
+                    }
+                    *current_ship_speed -= 1;
+                } else if (ship->dir == 1 || ship->dir == 2) {
+                    *current_ship_speed += 1;
+                }
+            }
+
+            ship->dir = (ship->dir == 3) ? 0 : ship->dir + 1;
+        } else if (key == 13) {
+            // MOVEMENT
+            if (*action_state == 0) {
+                pkgGAJIENS(1, ship->x, ship->y, ship->dir);
+            }
+            // ATTACK
+            else if (*action_state == 1) {
+                pkgGAJIENS(2, ship->x, ship->y, 0);
+            }
+            // POWER-UP
+            else if (*action_state == 2) {
+                pkgGAJIENS(3, ship->x, ship->y, 0);
+            }
+        }
+    }
+
+    if (*game_state == 4 || *game_state == 6) {
+        if(key == 9){
+            *menu_state += 1;
+            if(*menu_state >= 2){
+                *menu_state = 0;
+            }
         }
     }
 
@@ -287,7 +634,6 @@ void closeFunc()
 
 void printText(char *text, double x, double y)
 {
-    glColor3f(0.0f, 0.0f, 0.0f);
     glRasterPos3f(x, y, 0);
     while(*text){
         glutBitmapCharacter(GLUT_BITMAP_TIMES_ROMAN_24, *text++);
@@ -295,49 +641,85 @@ void printText(char *text, double x, double y)
     glFlush();
 }
 
-void lobby(char *not_ready, char *ready)
+void loadingScreen()
+{
+    glColor3f(0.0f, 0.0f, 0.0f);
+    printText("Loading...", 8.0f, 2.0f);
+}
+
+void lobby()
 {
     glColor3f(0.0f, 0.0f, 0.0f);
     glRasterPos3f(4.0, 9.0, 0);
     printText("Lobby", 4.5, 9);
-    for(int i = 0; i < *players_count; i++){
+    char *ready_state = "Ready";
+    for(int i = 0; i < MAX_PLAYERS; i++){
+        if (players[i].id == 0) {
+            continue;
+        }
+
         glColor3f(0.0f, 0.0f, 0.0f);
         glRasterPos3f(1.0, 8.0-(0.3*i), 0);
         for(int a = 0; a < strlen(players[i].name); a++){
             glutBitmapCharacter(GLUT_BITMAP_TIMES_ROMAN_24, players[i].name[a]);
         }
 
-
-        if(players[i].is_ready == 1){
+        if (players[i].is_ready == 1) {
             glColor3f(0.0f, 1.0f, 0.0f);
-            glRasterPos3f(8.0, 8.0-(0.3*i), 0);
-            for(int a = 0; a < strlen(ready); a++){
-                glutBitmapCharacter(GLUT_BITMAP_TIMES_ROMAN_24, ready[a]);
-            }
-        }else{
+            ready_state = "Ready";
+        } else {
             glColor3f(1.0f, 0.0f, 0.0f);
-            glRasterPos3f(8.0, 8.0-(0.3*i), 0);
-            for(int a = 0; a < strlen(not_ready); a++){
-                glutBitmapCharacter(GLUT_BITMAP_TIMES_ROMAN_24, not_ready[a]);
-            }
+            ready_state = "Not Ready";
+        }
+
+        glRasterPos3f(8.0, 8.0-(0.3*i), 0);
+        for(int a = 0; a < strlen(ready_state); a++){
+            glutBitmapCharacter(GLUT_BITMAP_TIMES_ROMAN_24, ready_state[a]);
         }
         glFlush();
     }
 }
 
-void printConnectedUsers(){
-    for(int i = 0; i < *players_count; i++){
-        glRasterPos3f(6.5, 9.0-(0.3*i), 0);
-        if(players[i].team_id == 1){
-            glColor3f(0.0f, 0.0f, 1.0f);
+void printConnectedUsers()
+{
+    if (*this_teamID == 0) {
+        for (int i = 0; i < MAX_PLAYERS; i++) {
+            if (players[i].id == 0) {
+                continue;
+            }
+
+            glColor3f(0.0f, 0.0f, 0.0f);
+            glRasterPos3f(6.5, 9.0-(0.3*i), 0);
             for(int a = 0; a < strlen(players[i].name); a++){
                 glutBitmapCharacter(GLUT_BITMAP_TIMES_ROMAN_24, players[i].name[a]);
             }
-        }else{
-            glColor3f(1.0f, 0.0f, 0.0f);
-            for(int a = 0; a < strlen(players[i].name); a++){
-                glutBitmapCharacter(GLUT_BITMAP_TIMES_ROMAN_24, players[i].name[a]);
-            }
+        }
+        glFlush();
+        return;
+    }
+
+    uint8_t player_iter = 0;
+    for (int i = 0; i < MAX_PLAYERS; i++) {
+        if (players[i].id == 0 || players[i].team_id != *this_teamID) {
+            continue;
+        }
+
+        glColor3f(0.0f, 1.0f, 0.0f);
+        glRasterPos3f(6.5, 9.0-(0.3*player_iter++), 0);
+        for(int a = 0; a < strlen(players[i].name); a++){
+            glutBitmapCharacter(GLUT_BITMAP_TIMES_ROMAN_24, players[i].name[a]);
+        }
+    }
+    player_iter++;
+    for (int i = 0; i < MAX_PLAYERS; i++) {
+        if (players[i].id == 0 || players[i].team_id == *this_teamID) {
+            continue;
+        }
+
+        glColor3f(1.0f, 0.0f, 0.0f);
+        glRasterPos3f(6.5, 9.0-(0.3*player_iter++), 0);
+        for(int a = 0; a < strlen(players[i].name); a++){
+            glutBitmapCharacter(GLUT_BITMAP_TIMES_ROMAN_24, players[i].name[a]);
         }
     }
     glFlush();
@@ -345,11 +727,12 @@ void printConnectedUsers(){
 
 void inputField()
 {
-    glClear(GL_COLOR_BUFFER_BIT);
-    printText("Enter your name", 4.5, 9);
+    glColor3f(0.3f, 0.3f, 0.3f);
+    printText("press 'ENTER' to submit", 4.2, 6);
     glColor3f(0.0f, 0.0f, 0.0f);
-    glRasterPos3f(3, 8.2, 0);
-    for(int i = 0; i < 32 || player_name[i] != '\0'; i++){
+    printText("Enter your name", 4.5, 9);
+    glRasterPos3f(4, 8, 0);
+    for(int i = 0; i < MAX_PLAYER_NAME_LEN || player_name[i] != '\0'; i++){
         glutBitmapCharacter(GLUT_BITMAP_TIMES_ROMAN_24, player_name[i]);
     }
     glFlush();
@@ -358,24 +741,24 @@ void inputField()
 void outlineCube()
 {
     glColor3f(0.0f, 0.0f, 0.0f);
-    for(int i = 0; i < 64; i ++){
+    for(int i = 0; i < 65; i ++){
         glBegin(GL_LINES);
-            glVertex2f(0.5, 8.5-(0.12*i));
-            glVertex2f(0.0817*64, 8.5-(0.12*i));
+            glVertex2f(0.425, 8.62-(0.12*i));
+            glVertex2f(0.0817*64, 8.62-(0.12*i));
         glEnd();
     }
-    for(int i = 0; i < 64; i ++){
+    for(int i = 0; i < 65; i ++){
         glBegin(GL_LINES);
-            glVertex2f(0.5+(0.075*i), 8.5);
-            glVertex2f(0.5+(0.075*i), 0.94);
+            glVertex2f(0.425+(0.075*i), 8.62);
+            glVertex2f(0.425+(0.075*i), 0.94);
         glEnd();
     }
     glFlush();
 }
 
-void filledCube(int x, int y)
+void filledCube(int x, int y, double r, double g, double b)
 {
-    glColor3f(0.0f, 0.0f, 0.0f);
+    glColor3f(r, g, b);
     glBegin(GL_QUADS);
         glVertex3f(0.5+(x*0.075), 8.62-(y*0.12), 0.0);
         glVertex3f(0.425+(x*0.075), 8.62-(y*0.12), 0.0);
@@ -387,17 +770,32 @@ void filledCube(int x, int y)
 
 void quartalMap()
 {
-    glColor3f(0.0f, 0.0f, 0.0f);
-    for(int y = 0; y < 4;  y++){
-        for(int x = 0; x < 4; x++){
-            glBegin(GL_LINE_LOOP);
-                glVertex3f(0.5+(x*0.1), 9.6-(y*0.2), 0.0);
-                glVertex3f(0.6+(x*0.1), 9.6-(y*0.2), 0.0);
-                glVertex3f(0.6+(x*0.1), 9.4-(y*0.2), 0.0);
-                glVertex3f(0.5+(x*0.1), 9.4-(y*0.2), 0.0);
-            glEnd();
-            glFlush();
-            if(quartal_map[y][x] == 1){
+    for (int y = 0; y < 4;  y++) {
+        for (int x = 0; x < 4; x++) {
+            if (*game_state == 4) {
+                if (*this_teamID == 1 && x >= 2) {
+                    glColor3f(0.4f, 0.4f, 0.4f);
+                    glBegin(GL_QUADS);
+                    glVertex3f(0.5+(x*0.1), 9.6-(y*0.2), 0.0);
+                    glVertex3f(0.6+(x*0.1), 9.6-(y*0.2), 0.0);
+                    glVertex3f(0.6+(x*0.1), 9.4-(y*0.2), 0.0);
+                    glVertex3f(0.5+(x*0.1), 9.4-(y*0.2), 0.0);
+                    glEnd();
+                    glFlush();
+                } else if (*this_teamID == 2 && x < 2) {
+                    glColor3f(0.4f, 0.4f, 0.4f);
+                    glBegin(GL_QUADS);
+                    glVertex3f(0.5+(x*0.1), 9.6-(y*0.2), 0.0);
+                    glVertex3f(0.6+(x*0.1), 9.6-(y*0.2), 0.0);
+                    glVertex3f(0.6+(x*0.1), 9.4-(y*0.2), 0.0);
+                    glVertex3f(0.5+(x*0.1), 9.4-(y*0.2), 0.0);
+                    glEnd();
+                    glFlush();
+                }
+            }
+            glColor3f(0.0f, 0.0f, 0.0f);
+            if (y * 4 + x == *plane) {
+                quartal_map[y][x] = 1;
                 glBegin(GL_QUADS);
                     glVertex3f(0.5+(x*0.1), 9.6-(y*0.2), 0.0);
                     glVertex3f(0.6+(x*0.1), 9.6-(y*0.2), 0.0);
@@ -406,8 +804,27 @@ void quartalMap()
                 glEnd();
                 glFlush();
             }
+            glBegin(GL_LINE_LOOP);
+                glVertex3f(0.5+(x*0.1), 9.6-(y*0.2), 0.0);
+                glVertex3f(0.6+(x*0.1), 9.6-(y*0.2), 0.0);
+                glVertex3f(0.6+(x*0.1), 9.4-(y*0.2), 0.0);
+                glVertex3f(0.5+(x*0.1), 9.4-(y*0.2), 0.0);
+            glEnd();
+            glFlush();
         }
     }
+}
+
+void printHUD()
+{
+    if (*game_state == 6) {
+        glColor3f(0.0f, 0.0f, 0.0f);
+        glRasterPos3f(9.0f, 9.0f, 0);
+        glutBitmapCharacter(GLUT_BITMAP_TIMES_ROMAN_24, *current_ship_speed + '0');
+    }
+
+    glColor3f(0.0f, 1.0f, 0.0f);
+    printText((char*)player_name, 1.0f, 9.0f);
 }
 
 void createPlane()
@@ -415,20 +832,25 @@ void createPlane()
     printConnectedUsers();
     outlineCube();
     quartalMap();
-    printText("Battlefield", 2.5, 9.5);
-    for(int i = 0; i < 4; i++){
-        battlefield[9*256+(i+1)] = 1;
+    printHUD();
+    if(*game_state == 4){
+        printText("Battlefield", 2.5, 9.5);
+    } else if (*game_state == 6){
+        printText("All Out WAR", 2.5, 9.5);
     }
-    battlefield[72*256+92] = 1;
-    battlefield[240*256+243] = 1;
 
-    for(int i = 0; i < 64; i++) {
-        for (int a = 0; a < 64; a++){
-            if(battlefield[(i+64*(*plane))*256+(a+64*(*plane))] == 1){
-                filledCube(a, i);
+    uint8_t koef_x = *plane % 4;
+    uint8_t koef_y = *plane / 4;
+
+    for(int x = 0; x < 64; x++) {
+        for (int y = 0; y < 64; y++) {
+            uint8_t battlefield_object = battlefield[(x+64*koef_x)+(y+64*koef_y)*BATTLEFIELD_X_MAX];
+            if(battlefield_object != 0){
+                filledCube(x, y, 0.0, 0.0, 0.0);
             }
         }
     }
+    glFlush();
 }
 
 
@@ -448,9 +870,9 @@ void getSharedMemory()
     last_package_npk = (uint32_t*) (shared_memory + shared_size); shared_size += sizeof(uint32_t);
     *last_package_npk = 0;
     to_exit = (char*) (shared_memory + shared_size); shared_size += sizeof(char);
-    name_is_ready = (char*) (shared_memory + shared_size); shared_size += sizeof(char);
     need_redisplay = (char*) (shared_memory + shared_size); shared_size += sizeof(char);
     is_little_endian = (char*) (shared_memory + shared_size); shared_size += sizeof(char);
+    to_get_ships = (char*) (shared_memory + shared_size); shared_size += sizeof(char);
     this_ID = (uint8_t*) (shared_memory + shared_size); shared_size += sizeof(uint8_t);
     this_teamID = (uint8_t*) (shared_memory + shared_size); shared_size += sizeof(uint8_t);
     player_name_len = (uint8_t*) (shared_memory + shared_size); shared_size += sizeof(uint8_t);
@@ -458,11 +880,18 @@ void getSharedMemory()
     players_count = (uint8_t*) (shared_memory + shared_size); shared_size += sizeof(uint8_t);
     players = (struct Player*) (shared_memory + shared_size); shared_size += sizeof(struct Player) * MAX_PLAYERS;
     ships = (struct Ship*) (shared_memory + shared_size); shared_size += sizeof(struct Ship) * MAX_SHIPS;
+    menu_state = (uint8_t*) (shared_memory + shared_size); shared_size += sizeof(uint8_t);
     plane = (uint8_t*) (shared_memory + shared_size); shared_size += sizeof(uint8_t);
     battlefield_x = (uint8_t*) (shared_memory + shared_size); shared_size += sizeof(uint8_t);
     battlefield_y = (uint8_t*) (shared_memory + shared_size); shared_size += sizeof(uint8_t);
-    battlefield = (uint8_t*) (shared_memory + shared_size); shared_size += sizeof(uint8_t) * BATTLEFIELD_X_MAX * BATTLEFIELD_Y_MAX;
+    battlefield = (uint8_t*) (shared_memory + shared_size); shared_size += sizeof(uint8_t) * (BATTLEFIELD_X_MAX+1) * (BATTLEFIELD_Y_MAX+1);
+    ships_to_place = (struct ShipToPlace*) (shared_memory + shared_size); shared_size += sizeof(struct ShipToPlace) * (MAX_SHIPS / 2);
     game_state = (uint8_t*) (shared_memory + shared_size); shared_size += sizeof(uint8_t);
+    action_state = (uint8_t*) (shared_memory + shared_size); shared_size += sizeof(uint8_t);
+    current_ship = (struct Ship*) (shared_memory + shared_size); shared_size += sizeof(struct Ship);
+    current_ship_speed = (uint8_t*) (shared_memory + shared_size); shared_size += sizeof(uint8_t);
+    current_ship_range = (uint8_t*) (shared_memory + shared_size); shared_size += sizeof(uint8_t);
+    current_ship_is_dir = (uint8_t*) (shared_memory + shared_size); shared_size += sizeof(uint8_t);
 }
 
 void gameloop()
@@ -519,27 +948,47 @@ void processPackage(uint8_t *msg)
     uint8_t msg_type = getPackageType(msg);
     if (msg_type == 1) {
         pkgACK(msg, getPackageContentSize(msg, *is_little_endian));
-    }
-    else if (msg_type == 3) {
+    } else if (msg_type == 3) {
         pkgLOBBY(msg, getPackageContentSize(msg, *is_little_endian));
-    }
-    else if (msg_type == 5) {
+    } else if (msg_type == 5) {
         pkgSTART_SETUP(msg, getPackageContentSize(msg, *is_little_endian));
-    }
-    else if (msg_type == 6) {
+    } else if (msg_type == 6) {
         pkgSTATE(msg, getPackageContentSize(msg, *is_little_endian));
-    }
-    else if (msg_type == 7) {
+        addShipsToPlace();
+    } else if (msg_type == 7) {
         pkgTEV_JALIEK(msg, getPackageContentSize(msg, *is_little_endian));
-    }
-    else if (msg_type == 9) {
+    } else if (msg_type == 9) {
         pkgSTART_GAME(msg, getPackageContentSize(msg, *is_little_endian));
-    }
-    else if (msg_type == 10) {
+    } else if (msg_type == 10) {
         pkgTEV_JAIET(msg, getPackageContentSize(msg, *is_little_endian));
     }
 
     *need_redisplay = 1;
+}
+
+struct ShipToPlace* findShipToPlace(struct ShipToPlace* ships_arr, uint8_t type, uint8_t team_id)
+{
+    for (int i = 0; i < MAX_SHIPS/2; i++) {
+        if (ships_arr[i].type == type && ships_arr[i].team_id == team_id) {
+            return &ships_arr[i];
+        }
+    }
+    return NULL;
+}
+
+void addShipsToPlace()
+{
+    for(int i = 0; i < MAX_SHIPS/2; i++){
+        if(ships_to_place[i].placed == 0){
+            continue;
+        }
+        uint8_t dir = ships_to_place[i].dir;
+        char dx = (dir == 1) ? 1 : (dir == 3) ? -1 : 0;
+        char dy = (dir == 0) ? -1 : (dir == 2) ? 1 : 0;
+        for(int a = 0; a < 6 - ships_to_place[i].type; a++){
+            battlefield[(ships_to_place[i].x + a*dx) + (ships_to_place[i].y + a*dy) * BATTLEFIELD_X_MAX] = ships_to_place[i].type;
+        }
+    }
 }
 
 
@@ -554,11 +1003,18 @@ void pkgACK(uint8_t *msg, uint32_t content_size)
         closeFunc();
     }
 
+    if (*this_teamID == 0) {
+        *game_state = 3;
+    }
+
     printf("ID: %d\nTEAM: %d\n", *this_ID, *this_teamID);
 }
 
 void pkgLOBBY(uint8_t *msg, uint32_t content_size)
 {
+    if (*game_state == 1) {
+        *game_state = 2;
+    }
     uint8_t *content = getPackageContent(msg, content_size);
 
     uint32_t content_iter = 0;
@@ -579,19 +1035,26 @@ void pkgSTART_SETUP(uint8_t *msg, uint32_t content_size)
     uint8_t *content = getPackageContent(msg, content_size);
     *battlefield_x = content[0];
     *battlefield_y = content[1];
+    *plane = (*this_teamID == 1) ? 0 : 3;
 
-    *game_state = 1;
+    *game_state = 3;
 }
 
 void pkgSTATE(uint8_t *msg, uint32_t content_size)
 {
     uint8_t *content = getPackageContent(msg, content_size);
 
-    uint32_t battlefield_size = content[0] * content[1];
-    uint32_t content_iter = 2;
+    uint32_t content_iter = 0;
+    *battlefield_x = content[content_iter++];
+    *battlefield_y = content[content_iter++];
+    uint32_t battlefield_size = (*battlefield_x) * (*battlefield_y);
 
-    for (int i = 0; i < battlefield_size; i++) {
-        battlefield[i] = content[content_iter++];
+    int k = 0;
+    for (; k < battlefield_size; k++) {
+        battlefield[k] = content[content_iter++];
+    }
+    for (; k < (sizeof(uint8_t) * (BATTLEFIELD_X_MAX+1) * (BATTLEFIELD_Y_MAX+1)); k++) {
+        battlefield[k] = 0;
     }
     content_iter++;
 
@@ -607,15 +1070,53 @@ void pkgSTATE(uint8_t *msg, uint32_t content_size)
 
 void pkgTEV_JALIEK(uint8_t *msg, uint32_t content_size)
 {
+    if (*game_state == 2 || *game_state == 3) {
+        *plane = (*this_teamID == 1) ? 0 : 3;
+        *game_state = 4;
+    }
+
     uint8_t *content = getPackageContent(msg, content_size);
 
+    for (int i = 0; i < MAX_SHIPS / 2; i++) {
+        if (ships_to_place[i].type != content[1]) {
+            ships_to_place[i].placed = 0;
+        }
+    }
+
     if (*this_ID != content[0]) {
+        if (current_ship->type != 0) {
+            current_ship->type = 0;
+        }
         return;
     }
 
-    struct Ship* ship = findShipByIdAndTeamId(ships, content[1], *this_teamID);
+    if(ships[0].team_id != 0 && *to_get_ships == 0){
+        *to_get_ships = 1;
+        int ships_to_place_i = 0;
+        for (int i = 0; i < MAX_SHIPS; i++) {
+            if (ships[i].team_id == *this_teamID) {
+                ships_to_place[ships_to_place_i].placed = 0;
+                ships_to_place[ships_to_place_i].type = ships[i].type;
+                ships_to_place[ships_to_place_i].x = ships[i].x;
+                ships_to_place[ships_to_place_i].y = ships[i].y;
+                ships_to_place[ships_to_place_i].dir = ships[i].dir;
+                ships_to_place[ships_to_place_i].team_id = ships[i].team_id;
+                ships_to_place[ships_to_place_i].damage = ships[i].damage;
+                ships_to_place_i++;
+            }
+        }
+    }
 
-    // TODO put ship on battlefield, move and place
+    struct ShipToPlace* ship = findShipToPlace(ships_to_place, content[1], *this_teamID);
+    if (ship == NULL || ship->placed == 1) {
+        return;
+    }
+
+    ship->x = (*this_teamID == 1) ? 32 : *battlefield_x - 32;
+    ship->y = 32;
+    ship->placed = 1;
+    *plane = (*this_teamID == 1) ? 0 : 3;
+    current_ship->type = ship->type;
 }
 
 void pkgES_LIEKU(uint8_t type, uint8_t x, uint8_t y, uint8_t dir)
@@ -628,7 +1129,7 @@ void pkgES_LIEKU(uint8_t type, uint8_t x, uint8_t y, uint8_t dir)
     msg[3] = y;
     msg[4] = dir;
 
-    *last_package_npk += 1;
+    *last_package_npk += 2;
     uint8_t* pES_LIEKU = preparePackage(*last_package_npk, 8, msg, &content_size, content_size, *is_little_endian);
     write(*server_socket, pES_LIEKU, content_size);
 }
@@ -639,20 +1140,48 @@ void pkgSTART_GAME(uint8_t *msg, uint32_t content_size)
     *battlefield_x = content[0];
     *battlefield_y = content[1];
 
-    *game_state = 2;
+    *game_state = 6;
 }
 
 void pkgTEV_JAIET(uint8_t *msg, uint32_t content_size)
 {
+    if (*game_state == 4) {
+        *game_state = 6;
+    }
     uint8_t *content = getPackageContent(msg, content_size);
+
+    for (int i = 0; i < MAX_SHIPS / 2; i++) {
+        if (ships_to_place[i].type != content[1]) {
+            ships_to_place[i].placed = 0;
+        }
+    }
 
     if (*this_ID != content[0]) {
         return;
     }
 
     struct Ship* ship = findShipByIdAndTeamId(ships, content[1], *this_teamID);
+    if (ship == NULL) {
+        return;
+    }
 
-    // TODO do something with a ship
+    if (current_ship->type == ship->type && current_ship->team_id == ship->team_id) {
+        return;
+    }
+
+    struct ShipToPlace* ship_to_place = findShipToPlace(ships_to_place, ship->type, *this_teamID);
+    if (ship_to_place == NULL) {
+        return;
+    }
+    ship_to_place->placed = 1;
+
+    current_ship->type = ship->type;
+    current_ship->x = ship->x;
+    current_ship->y = ship->y;
+    current_ship->dir = ship->dir;
+    current_ship->team_id = ship->team_id;
+    current_ship->damage = ship->damage;
+    getShipData(ship->type, current_ship_speed, current_ship_range, current_ship_is_dir);
 }
 
 void pkgGAJIENS(uint8_t action, uint8_t x, uint8_t y, uint8_t thing)
@@ -665,14 +1194,15 @@ void pkgGAJIENS(uint8_t action, uint8_t x, uint8_t y, uint8_t thing)
     msg[3] = y;
     msg[4] = thing;
 
-    *last_package_npk += 1;
-    uint8_t* pES_LIEKU = preparePackage(*last_package_npk, 8, msg, &content_size, content_size, *is_little_endian);
+    *last_package_npk += 2;
+    uint8_t* pES_LIEKU = preparePackage(*last_package_npk, 11, msg, &content_size, content_size, *is_little_endian);
     write(*server_socket, pES_LIEKU, content_size);
 }
 
 void pkgEND_GAME(uint8_t *msg, uint32_t content_size)
 {
     uint8_t *content = getPackageContent(msg, content_size);
+    printArray(content, content_size);
 
     // content[0] - winner id
     // content[1] - winner team_id

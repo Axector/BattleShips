@@ -118,7 +118,6 @@ uint8_t* preparePackage(uint32_t npk, uint8_t type, uint8_t *content, uint32_t *
         package[i] = message[i];
     }
     free(message);
-
     *content_size = msg_size;
     return package;
 }
