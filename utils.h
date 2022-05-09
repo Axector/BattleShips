@@ -9,6 +9,7 @@
 #define MAX_SHIPS 10
 #define BATTLEFIELD_X_MAX 255
 #define BATTLEFIELD_Y_MAX 255
+#define PLANE_SIZE 64
 
 struct Ship {
     uint8_t type;

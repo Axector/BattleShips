@@ -9,6 +9,7 @@
 #include <sys/mman.h>
 #include <stdint.h>
 #include <math.h>
+#include<time.h>
 #include "utils.h"
 
 #define SERVER_DELTA_TIME 250.0f // Milliseconds
@@ -47,6 +48,10 @@ void gameloop();
 void startNetwork();
 void processClient(uint8_t id, int socket);
 
+void bigRock(uint8_t x, uint8_t y);
+void smallIsland(uint8_t x, uint8_t y);
+void mediumIsland(uint8_t x, uint8_t y);
+void fillBattlefield();
 void addPlayer(uint8_t *name, uint16_t name_len, uint8_t *id, uint8_t *team_id);
 void removePlayer(uint8_t id);
 void placeObjectOnBattlefield(uint8_t id, uint8_t x, uint8_t y);
@@ -338,6 +343,7 @@ void processClient(uint8_t id, int socket)
         else if (*game_state == 1) {
             pkgSTART_ANY(5, socket);
             getNextPlayer(*count_active_player)->active = 1;
+            fillBattlefield();
             *game_state = 2;
         }
         // STATE [SETUP]
@@ -365,6 +371,134 @@ void processClient(uint8_t id, int socket)
             *last_package_npk += 2;
             uint8_t* pEND_GAME = preparePackage(*last_package_npk, 12, msg, &content_size, content_size, *is_little_endian);
             write(socket, pEND_GAME, content_size);
+        }
+    }
+}
+
+char onBase(uint8_t x, uint8_t y)
+{
+    if (
+        (x > PLANE_SIZE / 2 - 10 &&
+        x < PLANE_SIZE / 2 + 10 &&
+        y > PLANE_SIZE / 2 - 10 &&
+        y < PLANE_SIZE / 2 + 10)
+        ||
+        (x > (PLANE_SIZE * 3 + PLANE_SIZE / 2) - 10 &&
+        x < (PLANE_SIZE * 3 + PLANE_SIZE / 2) + 10 &&
+        y > PLANE_SIZE / 2 - 10 &&
+        y < PLANE_SIZE / 2 + 10)
+    ) {
+        return 1;
+    }
+    return 0;
+}
+
+void bigRock(uint8_t x, uint8_t y)
+{
+    for (int i = 0; i < 3; i++) {
+        for (int j = 0; j < 3; j++) {
+            if (onBase(x + i, y + j)) {
+                continue;
+            }
+
+            if (
+                (i == 0 && j == 0) ||
+                (i == 2 && j == 0) ||
+                (i == 2 && j == 2) ||
+                (i == 0 && j == 2)
+            ) {
+                continue;
+            }
+            placeObjectOnBattlefield((enum BattlefieldObj) Rocks, x + i, y + j);
+        }
+    }
+}
+
+void smallIsland(uint8_t x, uint8_t y)
+{
+    for (int i = 0; i < 6; i++) {
+        for (int j = 0; j < 6; j++) {
+            if (onBase(x + i, y + j)) {
+                continue;
+            }
+
+            if (
+                (i == 0 && j == 0) ||
+                (i == 5 && j == 0) ||
+                (i == 5 && j == 5) ||
+                (i == 0 && j == 5) ||
+                (x + i >= *battlefield_x) ||
+                (y + j >= *battlefield_y)
+            ) {
+                continue;
+            }
+            placeObjectOnBattlefield((enum BattlefieldObj) Island, x + i, y + j);
+        }
+    }
+}
+
+void mediumIsland(uint8_t x, uint8_t y)
+{
+    for (int i = 0; i < 10; i++) {
+        for (int j = 0; j < 10; j++) {
+            if (onBase(x + i, y + j)) {
+                continue;
+            }
+
+            if (
+                (i == 0 && j == 0) ||
+                (i == 0 && j == 1) ||
+                (i == 1 && j == 0) ||
+                (i == 9 && j == 0) ||
+                (i == 8 && j == 0) ||
+                (i == 9 && j == 1) ||
+                (i == 8 && j == 9) ||
+                (i == 9 && j == 9) ||
+                (i == 9 && j == 8) ||
+                (i == 0 && j == 8) ||
+                (i == 0 && j == 9) ||
+                (i == 1 && j == 9) ||
+                (x + i >= *battlefield_x) ||
+                (y + j >= *battlefield_y)
+            ) {
+                continue;
+            }
+
+            placeObjectOnBattlefield((enum BattlefieldObj) Island, x + i, y + j);
+        }
+    }
+}
+
+void fillBattlefield()
+{
+    srand(time(0));
+    for (int x = 0; x < *battlefield_x; x++) {
+        for (int y = 0; y < *battlefield_y; y++) {
+            if (onBase(x, y)) {
+                continue;
+            }
+
+            float random_if = rand() % 10000 / 100.0f;
+            // Place Fish randomly on battlfield (0.05%)
+            if (random_if < 0.05f) {
+                placeObjectOnBattlefield((enum BattlefieldObj) Fish, x, y);
+            }
+            // Place Rocks randomly on battlfield (0.3%)
+            else if (random_if < 0.35f) {
+                placeObjectOnBattlefield((enum BattlefieldObj) Rocks, x, y);
+            }
+            // Place bigRock randomly on battlfield (0.05%)
+            else if (random_if < 0.4f) {
+                bigRock(x, y);
+            }
+            // Place smallIsland randomly on battlfield (0.03%)
+            else if (random_if < 0.43f) {
+                smallIsland(x, y);
+            }
+            // Place mediumIsland randomly on battlfield (0.01%)
+            else if (random_if < 0.44f) {
+                mediumIsland(x, y);
+            }
         }
     }
 }
@@ -747,14 +881,27 @@ void pkgTEV_JAIET(int socket)
         }
         return;
     }
-    struct Ship* ship = getNextShip(player->team_id);
-    if (ship == NULL) {
-        *game_state = 5;
-        *winner_team = (player->team_id == 1) ? 2 : 1;
-    }
 
     uint32_t content_size = 6;
     uint8_t msg[content_size];
+
+    struct Ship* ship = getNextShip(player->team_id);
+    if (ship == NULL) {
+        msg[0] = 0;
+        msg[1] = 0;
+        msg[2] = 0;
+        msg[3] = 0;
+        msg[4] = 0;
+        msg[5] = 0;
+        *last_package_npk += 1;
+        uint8_t* pTEV_JAIET = preparePackage(*last_package_npk, 10, msg, &content_size, content_size, *is_little_endian);
+        write(socket, pTEV_JAIET, content_size);
+
+        *game_state = 5;
+        *winner_team = (player->team_id == 1) ? 2 : 1;
+        return;
+    }
+
     msg[0] = player->id;
     msg[1] = ship->type;
     msg[2] = ship->x;
@@ -789,33 +936,18 @@ void pkgGAJIENS(uint8_t *msg, uint32_t content_size, int socket)
         ship->y = y;
         ship->dir = content[4];
         placeShip(ship);
-    // } else if (action_type == 2) {
-    //     uint8_t object_type = getBattlefieldObject(x, y);
-    //     if (object_type >= 1 && object_type <= 5) {
-    //         struct Ship* enemy_ship = getShipByCoord(x, y, ship->team_id);
-    //         if (enemy_ship != NULL) {
-    //             placeObjectOnBattlefield((enum BattlefieldObj) Hit, x, y);
-    //             dealDamage(enemy_ship, x, y);
-    //         }
-    //     } else {
-    //         placeObjectOnBattlefield((enum BattlefieldObj) HitNot, x, y);
-    //     }
-    // } else if (action_type == 3) {
-    //     uint8_t object_type = getBattlefieldObject(x, y);
-    //     uint8_t powerup_type = content[4];
-    //     if (powerup_type == (enum BattlefieldObj) Mine) {
-    //         placeObjectOnBattlefield((enum BattlefieldObj) Mine, x, y);
-    //     } else if (powerup_type == (enum BattlefieldObj) Rocket) {
-    //         if (object_type >= 1 && object_type <= 5) {
-    //             struct Ship* enemy_ship = getShipByCoord(x, y, ship->team_id);
-    //             if (enemy_ship != NULL) {
-    //                 placeObjectOnBattlefield((enum BattlefieldObj) Hit, x, y);
-    //                 dealDamage(enemy_ship, x, y);
-    //             }
-    //         } else {
-    //             placeObjectOnBattlefield((enum BattlefieldObj) HitNot, x, y);
-    //         }
-    //     }
+    } else if (action_type == 2) {
+        uint8_t object_type = getBattlefieldObject(x, y);
+        if (object_type >= 1 && object_type <= 5) {
+            struct Ship* enemy_ship = getShipByCoord(x, y, ship->team_id);
+            if (enemy_ship != NULL) {
+                placeObjectOnBattlefield((enum BattlefieldObj) Hit, x, y);
+                dealDamage(enemy_ship, x, y);
+                printf("enemy_ship->damage: %d\n", enemy_ship->damage);
+            }
+        } else {
+            placeObjectOnBattlefield((enum BattlefieldObj) HitNot, x, y);
+        }
     }
 
     if (*count_active_player % 2 == 0) {
