@@ -11,6 +11,7 @@
 #include "utils.h"
 
 #define HOST "127.0.0.1" /* localhost */
+#define PLANE_SIZE 64
 
 struct ShipToPlace {
     uint8_t type;
@@ -56,6 +57,7 @@ struct Ship *current_ship = NULL;
 uint8_t *current_ship_speed = NULL;
 uint16_t *current_ship_range = NULL;
 uint8_t *current_ship_is_dir = NULL;
+uint8_t *winner_team = NULL;
 
 /// Functions in thit file
 void getSharedMemory();
@@ -77,6 +79,8 @@ void inputField();
 void outlineGrid();
 void filledCube(int x, int y, double r, double g, double b);
 void quartalMap();
+void showWinner();
+void printHUD();
 void createPlane();
 
 struct ShipToPlace* findShipToPlace(struct ShipToPlace* ships, uint8_t type, uint8_t team_id);
@@ -182,6 +186,8 @@ void display()
     } else if (*game_state == 4 || *game_state == 6) {
         addShipsToPlace();
         createPlane();
+    } else if (*game_state == 8) {
+        showWinner();
     }
     glutSwapBuffers();
 }
@@ -241,7 +247,7 @@ void specialKeyboard(int key, int x, int y)
 
             if (
                 *plane / 4 > 0 &&
-                ship->y <= (*plane / 4) * 64
+                ship->y <= (*plane / 4) * PLANE_SIZE
             ) {
                 *plane -= 4;
             }
@@ -256,7 +262,7 @@ void specialKeyboard(int key, int x, int y)
 
             if (
                 *plane / 4 < 4 &&
-                ship->y >= ((*plane / 4) + 1) * 64 - 1
+                ship->y >= ((*plane / 4) + 1) * PLANE_SIZE - 1
             ) {
                 *plane += 4;
             }
@@ -272,7 +278,7 @@ void specialKeyboard(int key, int x, int y)
 
             if (
                 *plane % 4 > 0 &&
-                ship->x <= (*plane % 4) * 64
+                ship->x <= (*plane % 4) * PLANE_SIZE
             ) {
                 *plane -= 1;
             }
@@ -288,7 +294,7 @@ void specialKeyboard(int key, int x, int y)
 
             if (
                 *plane % 4 < 4 &&
-                ship->x >= ((*plane % 4) + 1) * 64 - 1
+                ship->x >= ((*plane % 4) + 1) * PLANE_SIZE - 1
             ) {
                 *plane += 1;
             }
@@ -310,14 +316,14 @@ void specialKeyboard(int key, int x, int y)
 
                 if (current_ship->y >= ship->y) {
                     if (*current_ship_speed > 0) {
-                        if (*plane / 4 > 0 && ship->y <= (*plane / 4) * 64) {
+                        if (*plane / 4 > 0 && ship->y <= (*plane / 4) * PLANE_SIZE) {
                             *plane -= 4;
                         }
                         ship->y -= 1;
                         *current_ship_speed -= 1;
                     }
                 } else if (current_ship->y <= ship->y) {
-                    if (*plane / 4 > 0 && ship->y <= (*plane / 4) * 64) {
+                    if (*plane / 4 > 0 && ship->y <= (*plane / 4) * PLANE_SIZE) {
                         *plane -= 4;
                     }
                     ship->y -= 1;
@@ -330,14 +336,14 @@ void specialKeyboard(int key, int x, int y)
 
                 if (current_ship->y <= ship->y) {
                     if (*current_ship_speed > 0) {
-                        if (*plane / 4 < 4 && ship->y >= ((*plane / 4) + 1) * 64 - 1) {
+                        if (*plane / 4 < 4 && ship->y >= ((*plane / 4) + 1) * PLANE_SIZE - 1) {
                             *plane += 4;
                         }
                         ship->y += 1;
                         *current_ship_speed -= 1;
                     }
                 } else if (current_ship->y >= ship->y) {
-                    if (*plane / 4 < 4 && ship->y >= ((*plane / 4) + 1) * 64 - 1) {
+                    if (*plane / 4 < 4 && ship->y >= ((*plane / 4) + 1) * PLANE_SIZE - 1) {
                         *plane += 4;
                     }
                     ship->y += 1;
@@ -350,14 +356,14 @@ void specialKeyboard(int key, int x, int y)
 
                 if (current_ship->x >= ship->x) {
                     if (*current_ship_speed > 0) {
-                        if (*plane % 4 > 0 && ship->x <= (*plane % 4) * 64) {
+                        if (*plane % 4 > 0 && ship->x <= (*plane % 4) * PLANE_SIZE) {
                             *plane -= 1;
                         }
                         ship->x -= 1;
                         *current_ship_speed -= 1;
                     }
                 } else if (current_ship->x <= ship->x) {
-                    if (*plane % 4 > 0 && ship->x <= (*plane % 4) * 64) {
+                    if (*plane % 4 > 0 && ship->x <= (*plane % 4) * PLANE_SIZE) {
                         *plane -= 1;
                     }
                     ship->x -= 1;
@@ -370,14 +376,14 @@ void specialKeyboard(int key, int x, int y)
 
                 if (current_ship->x <= ship->x) {
                     if (*current_ship_speed > 0) {
-                        if (*plane % 4 < 4 && ship->x >= ((*plane % 4) + 1) * 64 - 1) {
+                        if (*plane % 4 < 4 && ship->x >= ((*plane % 4) + 1) * PLANE_SIZE - 1) {
                             *plane += 1;
                         }
                         ship->x += 1;
                         *current_ship_speed -= 1;
                     }
                 } else if (current_ship->x >= ship->x) {
-                    if (*plane % 4 < 4 && ship->x >= ((*plane % 4) + 1) * 64 - 1) {
+                    if (*plane % 4 < 4 && ship->x >= ((*plane % 4) + 1) * PLANE_SIZE - 1) {
                         *plane += 1;
                     }
                     ship->x += 1;
@@ -495,16 +501,17 @@ void keyboard(unsigned char key, int x, int y)
             else if (*action_state == 2) {
                 pkgGAJIENS(3, ship->x, ship->y, 0);
             }
-        } else if(key == '1') {
+        } else if(*action_state != 0 && current_ship->damage <= 0 && key == '1') {
             *action_state = 0;
-        } else if(key == '2') {
+            setPlaneToShip(ship);
+        } else if(*action_state != 1 && key == '2') {
             *action_state = 1;
             ship->x = current_ship->x;
             ship->y = current_ship->y;
             ship->dir = current_ship->dir;
             getShipData(ship->type, current_ship_speed, current_ship_range, current_ship_is_dir);
             setPlaneToShip(ship);
-        } else if(key == '3') {
+        } else if(*action_state != 2 && key == '3') {
             *action_state = 2;
             ship->x = current_ship->x;
             ship->y = current_ship->y;
@@ -636,6 +643,8 @@ void keyboard(unsigned char key, int x, int y)
             if(*menu_state >= 2){
                 *menu_state = 0;
             }
+
+            // TODO other menu states
         }
     }
 
@@ -785,7 +794,7 @@ void outlineGrid()
     for(int i = 0; i < 65; i ++){
         glBegin(GL_LINES);
             glVertex2f(0.425, 8.62-(0.12*i));
-            glVertex2f(0.0817*64, 8.62-(0.12*i));
+            glVertex2f(0.0817*PLANE_SIZE, 8.62-(0.12*i));
         glEnd();
     }
     for(int i = 0; i < 65; i ++){
@@ -856,6 +865,18 @@ void quartalMap()
     }
 }
 
+void showWinner()
+{
+    if (*winner_team == *this_teamID) {
+        glColor3f(0.0f, 0.7f, 0.0f);
+        printText("VICTORY", 4.5f, 5.0f);
+    }
+    else {
+        glColor3f(0.7f, 0.0f, 0.0f);
+        printText("DEFEAT", 0.0f, 0.0f);
+    }
+}
+
 void printHUD()
 {
     if (*game_state == 6) {
@@ -888,19 +909,24 @@ void createPlane()
 
     uint8_t koef_x = *plane % 4;
     uint8_t koef_y = *plane / 4;
-    for(int x = 0; x < 64; x++) {
-        for (int y = 0; y < 64; y++) {
-            uint8_t battlefield_object = battlefield[(x+64*koef_x)+(y+64*koef_y)*BATTLEFIELD_X_MAX];
-            if (battlefield_object >= 1 && battlefield_object <= 5) {
-                if (isPlacingShip((x+64*koef_x), (y+64*koef_y))) {
+    for(int x = 0; x < PLANE_SIZE; x++) {
+        for (int y = 0; y < PLANE_SIZE; y++) {
+            uint8_t battlefield_object = battlefield[(x+PLANE_SIZE*koef_x)+(y+PLANE_SIZE*koef_y)*BATTLEFIELD_X_MAX];
+            if (battlefield_object == (enum BattlefieldObj) Rocks) {
+                filledCube(x, y, 0.30f, 0.2f, 0.2f);
+            } else if (battlefield_object == (enum BattlefieldObj) Hit) {
+                filledCube(x, y, 0.8f, 0.0f, 0.0f);
+            } else if (battlefield_object >= 1 && battlefield_object <= 5) {
+                if (isPlacingShip((x+PLANE_SIZE*koef_x), (y+PLANE_SIZE*koef_y))) {
                     filledCube(x, y, 0.0f, 0.5f, 0.0f);
                 } else {
-                    if (isOurTeamShip((x+64*koef_x), (y+64*koef_y))) {
+                    char is_our = isOurTeamShip((x+PLANE_SIZE*koef_x), (y+PLANE_SIZE*koef_y));
+                    if (is_our == 1) {
                         filledCube(x, y, 0.0f, 0.0f, 0.3f);
+                    } else if (is_our == 2) {
+                        filledCube(x, y, 0.8f, 0.5f, 0.5f);
                     }
                 }
-            } else if (battlefield_object == (enum BattlefieldObj) Rocks) {
-                filledCube(x, y, 0.30f, 0.2f, 0.2f);
             } else if (battlefield_object != 0) {
                 filledCube(x, y, 0.1f, 0.1f, 0.1f);
             }
@@ -949,6 +975,7 @@ void getSharedMemory()
     current_ship_speed = (uint8_t*) (shared_memory + shared_size); shared_size += sizeof(uint8_t);
     current_ship_range = (uint16_t*) (shared_memory + shared_size); shared_size += sizeof(uint16_t);
     current_ship_is_dir = (uint8_t*) (shared_memory + shared_size); shared_size += sizeof(uint8_t);
+    winner_team = (uint8_t*) (shared_memory + shared_size); shared_size += sizeof(uint8_t);
 }
 
 void gameloop()
@@ -1043,7 +1070,9 @@ void addShipsToPlace()
         char dx = (dir == 1) ? 1 : (dir == 3) ? -1 : 0;
         char dy = (dir == 0) ? -1 : (dir == 2) ? 1 : 0;
         for(int a = 0; a < 6 - ships_to_place[i].type; a++){
-            battlefield[(ships_to_place[i].x + a*dx) + (ships_to_place[i].y + a*dy) * BATTLEFIELD_X_MAX] = ships_to_place[i].type;
+            if (battlefield[(ships_to_place[i].x + a*dx) + (ships_to_place[i].y + a*dy) * BATTLEFIELD_X_MAX] != (enum BattlefieldObj) Hit) {
+                battlefield[(ships_to_place[i].x + a*dx) + (ships_to_place[i].y + a*dy) * BATTLEFIELD_X_MAX] = ships_to_place[i].type;
+            }
         }
     }
 }
@@ -1093,12 +1122,16 @@ char isOurTeamShip(uint8_t x, uint8_t y)
         char dx = (dir == 1) ? 1 : (dir == 3) ? -1 : 0;
         char dy = (dir == 0) ? -1 : (dir == 2) ? 1 : 0;
         for (int a = 0; a < 6 - ships[i].type; a++) {
-            if (
-                (ships[i].x + a*dx) == x &&
-                (ships[i].y + a*dy) == y &&
-                ships[i].team_id == *this_teamID
-            ) {
-                return 1;
+            if ((ships[i].x + a*dx) == x && (ships[i].y + a*dy) == y) {
+                if (
+                    ships[i].team_id == *this_teamID ||
+                    ships[i].team_id == *this_teamID + 2
+                ) {
+                    return 1;
+                }
+                else if (ships[i].team_id == ((*this_teamID == 1) ? 4 : 3)) {
+                    return 2;
+                }
             }
         }
 
@@ -1111,10 +1144,10 @@ void setPlaneToShip(struct ShipToPlace* ship_to_place)
     for (int x = 0; x < 4; x++) {
         for (int y = 0; y < 4; y++) {
             if (
-                ship_to_place->x >= x*64 - 1 &&
-                ship_to_place->x <= (x+1)*64 - 1 &&
-                ship_to_place->y >= y*64 - 1 &&
-                ship_to_place->y <= (y+1)*64 - 1
+                ship_to_place->x >= x*PLANE_SIZE - 1 &&
+                ship_to_place->x <= (x+1)*PLANE_SIZE - 1 &&
+                ship_to_place->y >= y*PLANE_SIZE - 1 &&
+                ship_to_place->y <= (y+1)*PLANE_SIZE - 1
             ) {
                 *plane = x + (y * 4);
                 return;
@@ -1250,8 +1283,8 @@ void pkgTEV_JALIEK(uint8_t *msg, uint32_t content_size)
         return;
     }
 
-    ship->x = (*this_teamID == 1) ? 32 : *battlefield_x - 32;
-    ship->y = 32;
+    ship->x = (*this_teamID == 1) ? (PLANE_SIZE / 2) : *battlefield_x - (PLANE_SIZE / 2);
+    ship->y = PLANE_SIZE / 2;
     ship->placed = 1;
     *plane = (*this_teamID == 1) ? 0 : 3;
     current_ship->type = ship->type;
@@ -1304,7 +1337,10 @@ void pkgTEV_JAIET(uint8_t *msg, uint32_t content_size)
 
     struct Ship* ship = findShipByIdAndTeamId(ships, content[1], *this_teamID);
     if (ship == NULL) {
-        return;
+        ship = findShipByIdAndTeamId(ships, content[1], *this_teamID + 2);
+        if (ship == NULL) {
+            return;
+        }
     }
 
     if (current_ship->type == ship->type && current_ship->team_id == ship->team_id) {
@@ -1315,6 +1351,14 @@ void pkgTEV_JAIET(uint8_t *msg, uint32_t content_size)
     if (ship_to_place == NULL) {
         return;
     }
+
+    if (ship->damage > 0) {
+        *action_state = 1;
+    }
+    else {
+        *action_state = 0;
+    }
+
     ship_to_place->placed = 1;
 
     setPlaneToShip(ship_to_place);
@@ -1348,7 +1392,6 @@ void pkgEND_GAME(uint8_t *msg, uint32_t content_size)
     uint8_t *content = getPackageContent(msg, content_size);
     printArray(content, content_size);
 
-    // content[0] - winner id
-    // content[1] - winner team_id
-    // TODO end game somehow
+    *winner_team = content[1];
+    *game_state = 8;
 }
