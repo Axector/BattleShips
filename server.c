@@ -8,6 +8,7 @@
 #include <string.h>
 #include <sys/mman.h>
 #include <stdint.h>
+#include <math.h>
 #include "utils.h"
 
 #define SERVER_DELTA_TIME 250.0f // Milliseconds
@@ -36,6 +37,7 @@ uint8_t *battlefield_x = NULL;
 uint8_t *battlefield_y = NULL;
 uint8_t *battlefield = NULL;
 uint8_t *game_state = NULL;             // Current game state
+uint8_t *winner_team = NULL;
 
 
 /// Functions in this file
@@ -53,6 +55,8 @@ void placeShip(struct Ship* ship);
 void clearShip(struct Ship* ship);
 struct Player* getNextPlayer(uint8_t n);
 struct Ship* getNextShip(uint8_t team_id);
+struct Ship* getShipByCoord(uint8_t x, uint8_t y, uint8_t not_team_id);
+void dealDamage(struct Ship* ship, uint8_t x, uint8_t y);
 void processPackage(uint8_t *msg, int socket);
 
 // Package types
@@ -120,6 +124,7 @@ void getSharedMemory()
     battlefield_y = (uint8_t*) (shared_memory + shared_size); shared_size += sizeof(uint8_t);
     battlefield = (uint8_t*) (shared_memory + shared_size); shared_size += sizeof(uint8_t) * BATTLEFIELD_X_MAX * BATTLEFIELD_Y_MAX;
     game_state = (uint8_t*) (shared_memory + shared_size); shared_size += sizeof(uint8_t);
+    winner_team = (uint8_t*) (shared_memory + shared_size); shared_size += sizeof(uint8_t);
 }
 
 void setDefaults()
@@ -355,8 +360,8 @@ void processClient(uint8_t id, int socket)
         else if (*game_state == 5) {
             uint32_t content_size = 2;
             uint8_t msg[content_size];
-            msg[0] = 0;     // winner id
-            msg[1] = 0;     // winner team_id
+            msg[0] = 0;
+            msg[1] = *winner_team;
             *last_package_npk += 2;
             uint8_t* pEND_GAME = preparePackage(*last_package_npk, 12, msg, &content_size, content_size, *is_little_endian);
             write(socket, pEND_GAME, content_size);
@@ -435,13 +440,41 @@ uint8_t getBattlefieldObject(uint8_t x, uint8_t y)
 
 void placeShip(struct Ship* ship)
 {
-    // TODO Check ship position
-
+    uint8_t x = 0;
+    uint8_t y = 0;
+    char is_mine = 0;
     char dx = (ship->dir == 1) ? 1 : (ship->dir == 3) ? -1 : 0;
     char dy = (ship->dir == 0) ? -1 : (ship->dir == 2) ? 1 : 0;
 
     for (int i = 0; i < 6 - ship->type; i++) {
-        placeObjectOnBattlefield(ship->type, ship->x + i * dx, ship->y + i * dy);
+        x = ship->x + i * dx;
+        y = ship->y + i * dy;
+
+        if (getBattlefieldObject(x, y) == (enum BattlefieldObj) Mine) {
+            ship->damage = (uint8_t) pow(2, 6 - ship->type) - 1;
+            ship->team_id = 0;
+            is_mine = 1;
+        }
+
+        struct Ship* enemy_ship = getShipByCoord(x, y, ship->team_id);
+        if (*game_state == 4 && enemy_ship != NULL) {
+            placeObjectOnBattlefield((enum BattlefieldObj) Hit, x, y);
+            dealDamage(ship, x, y);
+            ship->team_id = (ship->team_id == 1 || ship->team_id == 3) ? 3 : (ship->team_id == 0) ? 0 : 4;
+            dealDamage(enemy_ship, x, y);
+            enemy_ship->team_id = (enemy_ship->team_id == 1 || enemy_ship->team_id == 3) ? 3 : (enemy_ship->team_id == 0) ? 0 : 4;
+        }
+        else {
+            placeObjectOnBattlefield(ship->type, x, y);
+        }
+    }
+
+    if (is_mine) {
+        for (int i = 0; i < 6 - ship->type; i++) {
+            x = ship->x + i * dx;
+            y = ship->y + i * dy;
+            placeObjectOnBattlefield((enum BattlefieldObj) Hit, x, y);
+        }
     }
 }
 
@@ -475,7 +508,7 @@ struct Ship* getNextShip(uint8_t team_id)
     uint8_t count_ships = 0;
     uint8_t n = (team_id == 1) ? *count_active_ships_1 : *count_active_ships_2;
     for (int i = 0; i < MAX_SHIPS; i++) {
-        if (ships[i].team_id == team_id) {
+        if (ships[i].team_id == team_id || ships[i].team_id == team_id + 2) {
             if (count_ships == n) {
                 return &ships[i];
             }
@@ -490,12 +523,49 @@ struct Ship* getNextShip(uint8_t team_id)
     }
 
     for (int i = 0; i < MAX_SHIPS; i++) {
-        if (ships[i].team_id == team_id) {
+        if (ships[i].team_id == team_id || ships[i].team_id == team_id + 2) {
             return &ships[i];
         }
     }
 
     return NULL;
+}
+
+struct Ship* getShipByCoord(uint8_t x, uint8_t y, uint8_t not_team_id)
+{
+    for (int i = 0; i < MAX_SHIPS; i++) {
+        uint8_t dir = ships[i].dir;
+        char dx = (dir == 1) ? 1 : (dir == 3) ? -1 : 0;
+        char dy = (dir == 0) ? -1 : (dir == 2) ? 1 : 0;
+        for (int a = 0; a < 6 - ships[i].type; a++) {
+            if (
+                (ships[i].x + a*dx) == x &&
+                (ships[i].y + a*dy) == y &&
+                ships[i].team_id != 0 &&
+                ships[i].team_id != not_team_id
+            ) {
+                return &ships[i];
+            }
+        }
+    }
+    return NULL;
+}
+
+void dealDamage(struct Ship* ship, uint8_t x, uint8_t y)
+{
+    uint8_t dir = ship->dir;
+    char dx = (dir == 1) ? 1 : (dir == 3) ? -1 : 0;
+    char dy = (dir == 0) ? -1 : (dir == 2) ? 1 : 0;
+    for (int a = 0; a < 6 - ship->type; a++) {
+        if ((ship->x + a*dx) == x && (ship->y + a*dy) == y) {
+            ship->damage |= 1 << a;
+            break;
+        }
+    }
+
+    if (ship->damage >= (uint8_t) pow(2, 6 - ship->type) - 1) {
+        ship->team_id = 0;
+    }
 }
 
 void processPackage(uint8_t *msg, int socket)
@@ -625,7 +695,7 @@ void pkgTEV_JALIEK(int socket)
         }
         return;
     }
-    struct Ship* ship = getNextShip((*count_active_player % 2) ? 2 : 1);
+    struct Ship* ship = getNextShip(player->team_id);
 
     msg[0] = player->id;
     msg[1] = ship->type;
@@ -677,7 +747,11 @@ void pkgTEV_JAIET(int socket)
         }
         return;
     }
-    struct Ship* ship = getNextShip((*count_active_player % 2) ? 2 : 1);
+    struct Ship* ship = getNextShip(player->team_id);
+    if (ship == NULL) {
+        *game_state = 5;
+        *winner_team = (player->team_id == 1) ? 2 : 1;
+    }
 
     uint32_t content_size = 6;
     uint8_t msg[content_size];
@@ -715,29 +789,33 @@ void pkgGAJIENS(uint8_t *msg, uint32_t content_size, int socket)
         ship->y = y;
         ship->dir = content[4];
         placeShip(ship);
-    } else if (action_type == 2) {
-        uint8_t object_type = getBattlefieldObject(x, y);
-        if (object_type >= 1 && object_type <= 5) {
-            placeObjectOnBattlefield((enum BattlefieldObj) Hit, x, y);
-
-            // TODO deal damage to the ship
-        } else {
-            placeObjectOnBattlefield((enum BattlefieldObj) HitNot, x, y);
-        }
-    } else if (action_type == 3) {
-        uint8_t object_type = getBattlefieldObject(x, y);
-        uint8_t powerup_type = content[4];
-        if (powerup_type == (enum BattlefieldObj) Mine) {
-            placeObjectOnBattlefield((enum BattlefieldObj) Mine, x, y);
-        } else if (powerup_type == (enum BattlefieldObj) Rocket) {
-            if (object_type >= 1 && object_type <= 5) {
-                placeObjectOnBattlefield((enum BattlefieldObj) Hit, x, y);
-
-                // TODO deal damage to the ship
-            } else {
-                placeObjectOnBattlefield((enum BattlefieldObj) HitNot, x, y);
-            }
-        }
+    // } else if (action_type == 2) {
+    //     uint8_t object_type = getBattlefieldObject(x, y);
+    //     if (object_type >= 1 && object_type <= 5) {
+    //         struct Ship* enemy_ship = getShipByCoord(x, y, ship->team_id);
+    //         if (enemy_ship != NULL) {
+    //             placeObjectOnBattlefield((enum BattlefieldObj) Hit, x, y);
+    //             dealDamage(enemy_ship, x, y);
+    //         }
+    //     } else {
+    //         placeObjectOnBattlefield((enum BattlefieldObj) HitNot, x, y);
+    //     }
+    // } else if (action_type == 3) {
+    //     uint8_t object_type = getBattlefieldObject(x, y);
+    //     uint8_t powerup_type = content[4];
+    //     if (powerup_type == (enum BattlefieldObj) Mine) {
+    //         placeObjectOnBattlefield((enum BattlefieldObj) Mine, x, y);
+    //     } else if (powerup_type == (enum BattlefieldObj) Rocket) {
+    //         if (object_type >= 1 && object_type <= 5) {
+    //             struct Ship* enemy_ship = getShipByCoord(x, y, ship->team_id);
+    //             if (enemy_ship != NULL) {
+    //                 placeObjectOnBattlefield((enum BattlefieldObj) Hit, x, y);
+    //                 dealDamage(enemy_ship, x, y);
+    //             }
+    //         } else {
+    //             placeObjectOnBattlefield((enum BattlefieldObj) HitNot, x, y);
+    //         }
+    //     }
     }
 
     if (*count_active_player % 2 == 0) {
