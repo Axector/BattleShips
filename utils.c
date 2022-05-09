@@ -47,7 +47,7 @@ void getShipData(uint8_t type, uint8_t *speed, uint16_t *range, uint8_t *is_dir)
 {
     if (type == 1) {
         *speed = 0;
-        *range = BATTLEFIELD_X_MAX * 2;
+        *range = 0;
         *is_dir = 0;
     }
     else if (type == 2) {
@@ -57,7 +57,7 @@ void getShipData(uint8_t type, uint8_t *speed, uint16_t *range, uint8_t *is_dir)
     }
     else if (type == 3) {
         *speed = 3;
-        *range = BATTLEFIELD_X_MAX * 2;
+        *range = 0;
         *is_dir = 1;
     }
     else if (type == 4) {

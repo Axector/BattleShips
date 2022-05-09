@@ -11,7 +11,6 @@
 #include "utils.h"
 
 #define HOST "127.0.0.1" /* localhost */
-#define PLANE_SIZE 64
 
 struct ShipToPlace {
     uint8_t type;
@@ -21,6 +20,11 @@ struct ShipToPlace {
     uint8_t team_id;
     uint8_t damage;
     uint8_t placed;
+};
+
+struct AttackPosition {
+    uint8_t x;
+    uint8_t y;
 };
 
 /// Variables
@@ -57,6 +61,7 @@ struct Ship *current_ship = NULL;
 uint8_t *current_ship_speed = NULL;
 uint16_t *current_ship_range = NULL;
 uint8_t *current_ship_is_dir = NULL;
+struct AttackPosition *current_attack_position = NULL;
 uint8_t *winner_team = NULL;
 
 /// Functions in thit file
@@ -67,6 +72,7 @@ void processPackage(uint8_t *msg);
 
 void glMain(int argc, char *argv[]);
 void display();
+void resize(int width, int height);
 void specialKeyboard(int key, int x, int y);
 void keyboard(unsigned char key, int x, int y);
 void closeFunc();
@@ -87,8 +93,8 @@ struct ShipToPlace* findShipToPlace(struct ShipToPlace* ships, uint8_t type, uin
 void addShipsToPlace();
 void removeShipsToPlace();
 char checkEnemyShip(uint8_t x, uint8_t y);
-char isPlacingShip(uint8_t x, uint8_t y);
-char isOurTeamShip(uint8_t x, uint8_t y);
+char isItPlacingShip(uint8_t x, uint8_t y);
+char isItOurTeamShip(uint8_t x, uint8_t y);
 void setPlaneToShip(struct ShipToPlace* ship_to_place);
 
 // Package types
@@ -148,12 +154,6 @@ int main(int argc, char *argv[])
     exit(0);
 }
 
-void resize(int width, int height) {
-    glutReshapeWindow(1400, 800);
-    //glutPositionWindow(100, 100);
-}
-
-
 void glMain(int argc, char *argv[])
 {
     glutInit(&argc, argv);
@@ -190,6 +190,12 @@ void display()
         showWinner();
     }
     glutSwapBuffers();
+}
+
+void resize(int width, int height)
+{
+    glutReshapeWindow(1400, 800);
+    //glutPositionWindow(100, 100);
 }
 
 void specialKeyboard(int key, int x, int y)
@@ -237,38 +243,52 @@ void specialKeyboard(int key, int x, int y)
             return;
         }
 
+        char dx = (ship->dir == 1) ? 1 : (ship->dir == 3) ? -1 : 0;
+        char dy = (ship->dir == 0) ? -1 : (ship->dir == 2) ? 1 : 0;
+
         removeShipsToPlace();
         if (key == GLUT_KEY_UP) {
-            if (
-                (ship->y - ((ship->dir == 0) ? 6 - ship->type - 1 : 0)) <= 0 + 1
-            ) {
+            for (int i = 0; i < 6 - ship->type; i++) {
+                uint8_t object_type = battlefield[(ship->x + i * dx) + ((ship->y + i * dy) - 1) * (*battlefield_x)];
+                if (object_type >= 10 && object_type <= 19) {
+                    return;
+                }
+            }
+
+            if ((ship->y - ((ship->dir == 0) ? 6 - ship->type - 1 : 0)) <= 0 + 1) {
                 return;
             }
 
-            if (
-                *plane / 4 > 0 &&
-                ship->y <= (*plane / 4) * PLANE_SIZE
-            ) {
+            if (*plane / 4 > 0 && ship->y <= (*plane / 4) * PLANE_SIZE ) {
                 *plane -= 4;
             }
 
             ship->y -= 1;
         } else if (key == GLUT_KEY_DOWN) {
-            if (
-                (ship->y + ((ship->dir == 2) ? 6 - ship->type - 1 : 0)) >= *battlefield_y - 1
-            ) {
+            for (int i = 0; i < 6 - ship->type; i++) {
+                uint8_t object_type = battlefield[(ship->x + i * dx) + ((ship->y + i * dy) + 1) * (*battlefield_x)];
+                if (object_type >= 10 && object_type <= 19) {
+                    return;
+                }
+            }
+
+            if ((ship->y + ((ship->dir == 2) ? 6 - ship->type - 1 : 0)) >= *battlefield_y - 1) {
                 return;
             }
 
-            if (
-                *plane / 4 < 4 &&
-                ship->y >= ((*plane / 4) + 1) * PLANE_SIZE - 1
-            ) {
+            if (*plane / 4 < 4 && ship->y >= ((*plane / 4) + 1) * PLANE_SIZE - 1) {
                 *plane += 4;
             }
 
             ship->y += 1;
         } else if (key == GLUT_KEY_LEFT) {
+            for (int i = 0; i < 6 - ship->type; i++) {
+                uint8_t object_type = battlefield[((ship->x + i * dx) - 1) + (ship->y + i * dy) * (*battlefield_x)];
+                if (object_type >= 10 && object_type <= 19) {
+                    return;
+                }
+            }
+
             if (
                 ((*this_teamID == 1 && (ship->x - ((ship->dir == 3) ? 6 - ship->type - 1 : 0)) <= 0 + 1) ||
                 (*this_teamID == 2 && (ship->x - ((ship->dir == 3) ? 6 - ship->type - 1 : 0)) <= (*battlefield_x / 2) + 1))
@@ -276,15 +296,19 @@ void specialKeyboard(int key, int x, int y)
                 return;
             }
 
-            if (
-                *plane % 4 > 0 &&
-                ship->x <= (*plane % 4) * PLANE_SIZE
-            ) {
+            if (*plane % 4 > 0 && ship->x <= (*plane % 4) * PLANE_SIZE) {
                 *plane -= 1;
             }
 
             ship->x -= 1;
         } else if (key == GLUT_KEY_RIGHT) {
+            for (int i = 0; i < 6 - ship->type; i++) {
+                uint8_t object_type = battlefield[((ship->x + i * dx) + 1) + (ship->y + i * dy) * (*battlefield_x)];
+                if (object_type >= 10 && object_type <= 19) {
+                    return;
+                }
+            }
+
             if (
                 ((*this_teamID == 1 && (ship->x + ((ship->dir == 1) ? 6 - ship->type - 1 : 0)) >= (*battlefield_x / 2)) ||
                 (*this_teamID == 2 && (ship->x + ((ship->dir == 1) ? 6 - ship->type - 1 : 0)) >= *battlefield_x - 1))
@@ -292,10 +316,7 @@ void specialKeyboard(int key, int x, int y)
                 return;
             }
 
-            if (
-                *plane % 4 < 4 &&
-                ship->x >= ((*plane % 4) + 1) * PLANE_SIZE - 1
-            ) {
+            if (*plane % 4 < 4 && ship->x >= ((*plane % 4) + 1) * PLANE_SIZE - 1) {
                 *plane += 1;
             }
 
@@ -307,9 +328,19 @@ void specialKeyboard(int key, int x, int y)
             return;
         }
 
+        char dx = (ship->dir == 1) ? 1 : (ship->dir == 3) ? -1 : 0;
+        char dy = (ship->dir == 0) ? -1 : (ship->dir == 2) ? 1 : 0;
+
         if (*action_state == 0) {
             removeShipsToPlace();
             if (key == GLUT_KEY_UP) {
+                for (int i = 0; i < 6 - ship->type; i++) {
+                    uint8_t object_type = battlefield[(ship->x + i * dx) + ((ship->y + i * dy) - 1) * (*battlefield_x)];
+                    if (object_type >= 10 && object_type <= 19) {
+                        return;
+                    }
+                }
+
                 if ((ship->y - ((ship->dir == 0) ? 6 - ship->type - 1 : 0)) <= 0 + 1) {
                     return;
                 }
@@ -330,6 +361,13 @@ void specialKeyboard(int key, int x, int y)
                     *current_ship_speed += 1;
                 }
             } else if (key == GLUT_KEY_DOWN) {
+                for (int i = 0; i < 6 - ship->type; i++) {
+                    uint8_t object_type = battlefield[(ship->x + i * dx) + ((ship->y + i * dy) + 1) * (*battlefield_x)];
+                    if (object_type >= 10 && object_type <= 19) {
+                        return;
+                    }
+                }
+
                 if ((ship->y + ((ship->dir == 2) ? 6 - ship->type - 1 : 0)) >= *battlefield_y - 1) {
                     return;
                 }
@@ -350,6 +388,13 @@ void specialKeyboard(int key, int x, int y)
                     *current_ship_speed += 1;
                 }
             } else if (key == GLUT_KEY_LEFT) {
+                for (int i = 0; i < 6 - ship->type; i++) {
+                    uint8_t object_type = battlefield[((ship->x + i * dx) - 1) + (ship->y + i * dy) * (*battlefield_x)];
+                    if (object_type >= 10 && object_type <= 19) {
+                        return;
+                    }
+                }
+
                 if ((ship->x - ((ship->dir == 3) ? 6 - ship->type - 1 : 0)) <= 0 + 1) {
                     return;
                 }
@@ -370,6 +415,13 @@ void specialKeyboard(int key, int x, int y)
                     *current_ship_speed += 1;
                 }
             } else if (key == GLUT_KEY_RIGHT) {
+                for (int i = 0; i < 6 - ship->type; i++) {
+                    uint8_t object_type = battlefield[((ship->x + i * dx) + 1) + (ship->y + i * dy) * (*battlefield_x)];
+                    if (object_type >= 10 && object_type <= 19) {
+                        return;
+                    }
+                }
+
                 if ((ship->x + ((ship->dir == 1) ? 6 - ship->type - 1 : 0)) >= *battlefield_x - 1) {
                     return;
                 }
@@ -388,6 +440,115 @@ void specialKeyboard(int key, int x, int y)
                     }
                     ship->x += 1;
                     *current_ship_speed += 1;
+                }
+            }
+        } else if (*action_state == 1) {
+            if (key == GLUT_KEY_UP) {
+                if (current_ship->type == 3) {
+                    current_attack_position->y = ship->y - ((ship->dir == 0) ? 6 - ship->type - 1 : 0) - 1;
+                    current_attack_position->x = ship->x;
+                    return;
+                }
+
+                if (current_attack_position->y <= 0 + 1) {
+                    return;
+                }
+
+                if (current_ship->y >= current_attack_position->y) {
+                    if (*current_ship_range > 0 || current_ship->type == 1) {
+                        if (*plane / 4 > 0 && current_attack_position->y <= (*plane / 4) * PLANE_SIZE) {
+                            *plane -= 4;
+                        }
+                        current_attack_position->y -= 1;
+                        *current_ship_range -= 1;
+                    }
+                } else if (current_ship->y <= current_attack_position->y) {
+                    if (*plane / 4 > 0 && current_attack_position->y <= (*plane / 4) * PLANE_SIZE) {
+                        *plane -= 4;
+                    }
+                    current_attack_position->y -= 1;
+                    *current_ship_range += 1;
+                }
+            }
+            if (key == GLUT_KEY_DOWN) {
+                if (current_ship->type == 3) {
+                    current_attack_position->y = ship->y + ((ship->dir == 2) ? 6 - ship->type - 1 : 0) + 1;
+                    current_attack_position->x = ship->x;
+                    return;
+                }
+
+                if (current_attack_position->y >= *battlefield_y - 1) {
+                    return;
+                }
+
+                if (current_ship->y <= current_attack_position->y) {
+                    if (*current_ship_range > 0 || current_ship->type == 1) {
+                        if (*plane / 4 < 4 && current_attack_position->y >= ((*plane / 4) + 1) * PLANE_SIZE - 1) {
+                            *plane += 4;
+                        }
+                        current_attack_position->y += 1;
+                        *current_ship_range -= 1;
+                    }
+                } else if (current_ship->y >= current_attack_position->y) {
+                    if (*plane / 4 < 4 && current_attack_position->y >= ((*plane / 4) + 1) * PLANE_SIZE - 1) {
+                        *plane += 4;
+                    }
+                    current_attack_position->y += 1;
+                    *current_ship_range += 1;
+                }
+            }
+            if (key == GLUT_KEY_LEFT) {
+                if (current_ship->type == 3) {
+                    current_attack_position->x = ship->x - ((ship->dir == 3) ? 6 - ship->type - 1 : 0) - 1;
+                    current_attack_position->y = ship->y;
+                    return;
+                }
+
+                if (current_attack_position->x <= 0 + 1) {
+                    return;
+                }
+
+                if (current_ship->x >= current_attack_position->x) {
+                    if (*current_ship_range > 0 || current_ship->type == 1) {
+                        if (*plane % 4 > 0 && current_attack_position->x <= (*plane % 4) * PLANE_SIZE) {
+                            *plane -= 1;
+                        }
+                        current_attack_position->x -= 1;
+                        *current_ship_range -= 1;
+                    }
+                } else if (current_ship->x <= current_attack_position->x) {
+                    if (*plane % 4 > 0 && current_attack_position->x <= (*plane % 4) * PLANE_SIZE) {
+                        *plane -= 1;
+                    }
+                    current_attack_position->x -= 1;
+                    *current_ship_range += 1;
+                }
+            }
+            if (key == GLUT_KEY_RIGHT) {
+                if (current_ship->type == 3) {
+                    current_attack_position->x = ship->x + ((ship->dir == 1) ? 6 - ship->type - 1 : 0) + 1;
+                    current_attack_position->y = ship->y;
+                    return;
+                }
+
+                if (current_attack_position->x >= *battlefield_x - 1) {
+                    return;
+                }
+
+                if (current_ship->x <= current_attack_position->x) {
+                    if (*current_ship_range > 0 || current_ship->type == 1) {
+                        if (*plane % 4 < 4 && current_attack_position->x >= ((*plane % 4) + 1) * PLANE_SIZE - 1) {
+                            *plane += 1;
+                        }
+                        current_attack_position->x += 1;
+                        *current_ship_range -= 1;
+                    }
+                } else if (current_ship->x >= current_attack_position->x) {
+                    if (*plane % 4 < 4 && current_attack_position->x >= ((*plane % 4) + 1) * PLANE_SIZE - 1) {
+                        *plane += 1;
+                    }
+                    current_attack_position->x += 1;
+                    *current_ship_range += 1;
                 }
             }
         }
@@ -437,7 +598,19 @@ void keyboard(unsigned char key, int x, int y)
         if (ship == NULL) {
             return;
         }
+
         if (key == ',' && ship->type != 5) {
+            uint8_t dir = (ship->dir == 0) ? 3 : ship->dir - 1;
+            char dx = (dir == 1) ? 1 : (dir == 3) ? -1 : 0;
+            char dy = (dir == 0) ? -1 : (dir == 2) ? 1 : 0;
+
+            for (int i = 0; i < 6 - ship->type; i++) {
+                uint8_t object_type = battlefield[(ship->x + i * dx) + ((ship->y + i * dy)) * (*battlefield_x)];
+                if (object_type >= 10 && object_type <= 19) {
+                    return;
+                }
+            }
+
             if ((
                 ship->dir == 0 &&
                 ((*this_teamID == 1 && ship->x - (6 - ship->type - 1) <= 0) ||
@@ -459,6 +632,17 @@ void keyboard(unsigned char key, int x, int y)
             removeShipsToPlace();
             ship->dir = (ship->dir == 0) ? 3 : ship->dir - 1;
         } else if(key == '.' && ship->type != 5) {
+            uint8_t dir = (ship->dir == 3) ? 0 : ship->dir + 1;
+            char dx = (dir == 1) ? 1 : (dir == 3) ? -1 : 0;
+            char dy = (dir == 0) ? -1 : (dir == 2) ? 1 : 0;
+
+            for (int i = 0; i < 6 - ship->type; i++) {
+                uint8_t object_type = battlefield[(ship->x + i * dx) + ((ship->y + i * dy)) * (*battlefield_x)];
+                if (object_type >= 10 && object_type <= 19) {
+                    return;
+                }
+            }
+
             if ((
                 ship->dir == 2 &&
                 ((*this_teamID == 1 && ship->x - (6 - ship->type - 1) <= 0) ||
@@ -480,6 +664,14 @@ void keyboard(unsigned char key, int x, int y)
             removeShipsToPlace();
             ship->dir = (ship->dir == 3) ? 0 : ship->dir + 1;
         } else if(key == 13) {
+            char dx = (ship->dir == 1) ? 1 : (ship->dir == 3) ? -1 : 0;
+            char dy = (ship->dir == 0) ? -1 : (ship->dir == 2) ? 1 : 0;
+
+            for (int i = 0; i < 6 - ship->type; i++) {
+                if (isItOurTeamShip((ship->x + i * dx), (ship->y + i * dy)) == 1) {
+                    return;
+                }
+            }
             pkgES_LIEKU(ship->type, ship->x, ship->y, ship->dir);
         }
     } else if (*game_state == 6) {
@@ -491,35 +683,138 @@ void keyboard(unsigned char key, int x, int y)
         if (key == 13) {
             // MOVEMENT
             if (*action_state == 0) {
+                char dx = (ship->dir == 1) ? 1 : (ship->dir == 3) ? -1 : 0;
+                char dy = (ship->dir == 0) ? -1 : (ship->dir == 2) ? 1 : 0;
+
+                for (int i = 0; i < 6 - ship->type; i++) {
+                    if (isItOurTeamShip((ship->x + i * dx), (ship->y + i * dy)) == 1) {
+                        return;
+                    }
+                }
                 pkgGAJIENS(1, ship->x, ship->y, ship->dir);
             }
             // ATTACK
             else if (*action_state == 1) {
-                pkgGAJIENS(2, ship->x, ship->y, 0);
+                uint8_t current_x = current_attack_position->x;
+                uint8_t current_y = current_attack_position->y;
+                current_attack_position->x = 0;
+                current_attack_position->y = 0;
+
+                if (ship->type == 3) {
+                    if (current_x < current_ship->x) {
+                        while (current_x >= 0 + 1) {
+                            uint8_t battlefield_object = battlefield[current_x + current_y * BATTLEFIELD_X_MAX];
+                            if (battlefield_object > 0 && battlefield_object <= 5) {
+                                char is_our = isItOurTeamShip(current_x, current_y);
+                                if (is_our == 0 || is_our == 2) {
+                                    break;
+                                }
+                            }
+                            if (battlefield_object > 5) {
+                                break;
+                            }
+                            current_x -= 1;
+                        }
+                    } else if (current_x > current_ship->x) {
+                        while (current_x < *battlefield_x) {
+                            uint8_t battlefield_object = battlefield[current_x + current_y * BATTLEFIELD_X_MAX];
+                            if (battlefield_object > 0 && battlefield_object <= 5) {
+                                char is_our = isItOurTeamShip(current_x, current_y);
+                                if (is_our == 0 || is_our == 2) {
+                                    break;
+                                }
+                            }
+                            if (battlefield_object > 5) {
+                                break;
+                            }
+                            current_x += 1;
+                        }
+                    } else if (current_y < current_ship->y) {
+                        while (current_y >= 0 + 1) {
+                            uint8_t battlefield_object = battlefield[current_x + current_y * BATTLEFIELD_X_MAX];
+                            if (battlefield_object > 0 && battlefield_object <= 5) {
+                                char is_our = isItOurTeamShip(current_x, current_y);
+                                if (is_our == 0 || is_our == 2) {
+                                    break;
+                                }
+                            }
+                            if (battlefield_object > 5) {
+                                break;
+                            }
+                            current_y -= 1;
+                        }
+                    } else if (current_y > current_ship->y) {
+                        while (current_y <= *battlefield_y - 1) {
+                            uint8_t battlefield_object = battlefield[current_x + current_y * BATTLEFIELD_X_MAX];
+                            if (battlefield_object > 0 && battlefield_object <= 5) {
+                                char is_our = isItOurTeamShip(current_x, current_y);
+                                if (is_our == 0 || is_our == 2) {
+                                    break;
+                                }
+                            }
+                            if (battlefield_object > 5) {
+                                break;
+                            }
+                            current_y += 1;
+                        }
+                    }
+                }
+
+                uint8_t object_type = battlefield[current_x + current_y * (*battlefield_x)];
+                if (
+                    isItOurTeamShip(current_x, current_y) == 1 ||
+                    (object_type >= 10 && object_type <= 19)
+                ) {
+                    if (ship->type == 3) {
+                        if (current_x < ship->x) {
+                            current_x += 1;
+                        } else if (current_x > ship->x) {
+                            current_x -= 1;
+                        } else if (current_y < ship->y) {
+                            current_y += 1;
+                        } else if (current_y > ship->y) {
+                            current_y -= 1;
+                        }
+                    }
+                    else {
+                        return;
+                    }
+                }
+                pkgGAJIENS(2, current_x, current_y, 0);
             }
-            // POWER-UP
-            else if (*action_state == 2) {
-                pkgGAJIENS(3, ship->x, ship->y, 0);
-            }
-        } else if(*action_state != 0 && current_ship->damage <= 0 && key == '1') {
+        } else if (*action_state != 0 && current_ship->type != 1 && current_ship->damage <= 0 && key == '1') {
             *action_state = 0;
             setPlaneToShip(ship);
-        } else if(*action_state != 1 && key == '2') {
+            current_attack_position->x = 0;
+            current_attack_position->y = 0;
+        } else if (*action_state != 1 && current_ship->type != 5 && key == '2') {
             *action_state = 1;
             ship->x = current_ship->x;
             ship->y = current_ship->y;
             ship->dir = current_ship->dir;
             getShipData(ship->type, current_ship_speed, current_ship_range, current_ship_is_dir);
             setPlaneToShip(ship);
-        } else if(*action_state != 2 && key == '3') {
-            *action_state = 2;
-            ship->x = current_ship->x;
-            ship->y = current_ship->y;
-            ship->dir = current_ship->dir;
-            getShipData(ship->type, current_ship_speed, current_ship_range, current_ship_is_dir);
-            setPlaneToShip(ship);
+            if (ship->type == 3) {
+                current_attack_position->y = ship->y - ((ship->dir == 0) ? 6 - ship->type - 1 : 0) - 1;
+                current_attack_position->x = ship->x;
+            }
+            else {
+                current_attack_position->x = ship->x;
+                current_attack_position->y = ship->y;
+            }
         } else if (*action_state == 0) {
             if (key == ',' && ship->type != 5) {
+                uint8_t dir = (ship->dir == 0) ? 3 : ship->dir - 1;
+                char dx = (dir == 1) ? 1 : (dir == 3) ? -1 : 0;
+                char dy = (dir == 0) ? -1 : (dir == 2) ? 1 : 0;
+
+                for (int i = 0; i < 6 - ship->type; i++) {
+                    uint8_t object_type = battlefield[(ship->x + i * dx) + ((ship->y + i * dy)) * (*battlefield_x)];
+                    if (object_type >= 10 && object_type <= 19) {
+                        return;
+                    }
+                }
+
                 if ((
                     ship->dir == 0 &&
                     ship->x - (6 - ship->type - 1) <= 0
@@ -577,6 +872,17 @@ void keyboard(unsigned char key, int x, int y)
                 removeShipsToPlace();
                 ship->dir = (ship->dir == 0) ? 3 : ship->dir - 1;
             } else if(key == '.' && ship->type != 5) {
+                uint8_t dir = (ship->dir == 3) ? 0 : ship->dir + 1;
+                char dx = (dir == 1) ? 1 : (dir == 3) ? -1 : 0;
+                char dy = (dir == 0) ? -1 : (dir == 2) ? 1 : 0;
+
+                for (int i = 0; i < 6 - ship->type; i++) {
+                    uint8_t object_type = battlefield[(ship->x + i * dx) + ((ship->y + i * dy)) * (*battlefield_x)];
+                    if (object_type >= 10 && object_type <= 19) {
+                        return;
+                    }
+                }
+
                 if ((
                     ship->dir == 0 &&
                     ship->x + (6 - ship->type - 1) > *battlefield_x - 1
@@ -873,7 +1179,7 @@ void showWinner()
     }
     else {
         glColor3f(0.7f, 0.0f, 0.0f);
-        printText("DEFEAT", 0.0f, 0.0f);
+        printText("DEFEAT", 4.5f, 5.0f);
     }
 }
 
@@ -912,15 +1218,26 @@ void createPlane()
     for(int x = 0; x < PLANE_SIZE; x++) {
         for (int y = 0; y < PLANE_SIZE; y++) {
             uint8_t battlefield_object = battlefield[(x+PLANE_SIZE*koef_x)+(y+PLANE_SIZE*koef_y)*BATTLEFIELD_X_MAX];
-            if (battlefield_object == (enum BattlefieldObj) Rocks) {
-                filledCube(x, y, 0.30f, 0.2f, 0.2f);
+            if (
+                (current_attack_position->x != 0 && current_attack_position->y != 0) &&
+                (current_attack_position->x == (x+PLANE_SIZE*koef_x) && current_attack_position->y == (y+PLANE_SIZE*koef_y))
+            ) {
+                filledCube(x, y, 1.0f, 0.0f, 0.0f);
+            } else if (battlefield_object == (enum BattlefieldObj) Island) {
+                filledCube(x, y, 0.3f, 0.2f, 0.2f);
+            } else if (battlefield_object == (enum BattlefieldObj) Rocks) {
+                filledCube(x, y, 0.15f, 0.15f, 0.15f);
+            } else if (battlefield_object == (enum BattlefieldObj) Fish) {
+                filledCube(x, y, 0.1f, 0.2f, 0.7f);
             } else if (battlefield_object == (enum BattlefieldObj) Hit) {
                 filledCube(x, y, 0.8f, 0.0f, 0.0f);
+            } else if (battlefield_object == (enum BattlefieldObj) HitNot) {
+                filledCube(x, y, 0.4f, 0.4f, 0.6f);
             } else if (battlefield_object >= 1 && battlefield_object <= 5) {
-                if (isPlacingShip((x+PLANE_SIZE*koef_x), (y+PLANE_SIZE*koef_y))) {
+                if (isItPlacingShip((x+PLANE_SIZE*koef_x), (y+PLANE_SIZE*koef_y))) {
                     filledCube(x, y, 0.0f, 0.5f, 0.0f);
                 } else {
-                    char is_our = isOurTeamShip((x+PLANE_SIZE*koef_x), (y+PLANE_SIZE*koef_y));
+                    char is_our = isItOurTeamShip((x+PLANE_SIZE*koef_x), (y+PLANE_SIZE*koef_y));
                     if (is_our == 1) {
                         filledCube(x, y, 0.0f, 0.0f, 0.3f);
                     } else if (is_our == 2) {
@@ -928,7 +1245,9 @@ void createPlane()
                     }
                 }
             } else if (battlefield_object != 0) {
-                filledCube(x, y, 0.1f, 0.1f, 0.1f);
+                if (*game_state == 6) {
+                    filledCube(x, y, 1.0f, 1.0f, 1.0f);
+                }
             }
         }
     }
@@ -975,6 +1294,7 @@ void getSharedMemory()
     current_ship_speed = (uint8_t*) (shared_memory + shared_size); shared_size += sizeof(uint8_t);
     current_ship_range = (uint16_t*) (shared_memory + shared_size); shared_size += sizeof(uint16_t);
     current_ship_is_dir = (uint8_t*) (shared_memory + shared_size); shared_size += sizeof(uint8_t);
+    current_attack_position = (struct AttackPosition*) (shared_memory + shared_size); shared_size += sizeof(struct AttackPosition);
     winner_team = (uint8_t*) (shared_memory + shared_size); shared_size += sizeof(uint8_t);
 }
 
@@ -1045,6 +1365,8 @@ void processPackage(uint8_t *msg)
         pkgSTART_GAME(msg, getPackageContentSize(msg, *is_little_endian));
     } else if (msg_type == 10) {
         pkgTEV_JAIET(msg, getPackageContentSize(msg, *is_little_endian));
+    } else if (msg_type == 12) {
+        pkgEND_GAME(msg, getPackageContentSize(msg, *is_little_endian));
     }
 
     *need_redisplay = 1;
@@ -1094,7 +1416,7 @@ void removeShipsToPlace()
     }
 }
 
-char isPlacingShip(uint8_t x, uint8_t y)
+char isItPlacingShip(uint8_t x, uint8_t y)
 {
     struct ShipToPlace* ship = findShipToPlace(ships_to_place, current_ship->type, *this_teamID);
     if (ship == NULL) {
@@ -1111,7 +1433,7 @@ char isPlacingShip(uint8_t x, uint8_t y)
     return 0;
 }
 
-char isOurTeamShip(uint8_t x, uint8_t y)
+char isItOurTeamShip(uint8_t x, uint8_t y)
 {
     if (*this_teamID == 0) {
         return 1;
@@ -1331,6 +1653,8 @@ void pkgTEV_JAIET(uint8_t *msg, uint32_t content_size)
     if (*this_ID != content[0]) {
         if (current_ship->type != 0) {
             current_ship->type = 0;
+            current_attack_position->x = 0;
+            current_attack_position->y = 0;
         }
         return;
     }
@@ -1352,8 +1676,17 @@ void pkgTEV_JAIET(uint8_t *msg, uint32_t content_size)
         return;
     }
 
-    if (ship->damage > 0) {
+    if (ship->damage > 0 || ship->type == 1) {
         *action_state = 1;
+
+        if (ship->type == 3) {
+            current_attack_position->y = ship->y - ((ship->dir == 0) ? 6 - ship->type - 1 : 0) - 1;
+            current_attack_position->x = ship->x;
+        }
+        else {
+            current_attack_position->x = ship->x;
+            current_attack_position->y = ship->y;
+        }
     }
     else {
         *action_state = 0;
@@ -1390,8 +1723,6 @@ void pkgGAJIENS(uint8_t action, uint8_t x, uint8_t y, uint8_t thing)
 void pkgEND_GAME(uint8_t *msg, uint32_t content_size)
 {
     uint8_t *content = getPackageContent(msg, content_size);
-    printArray(content, content_size);
-
     *winner_team = content[1];
     *game_state = 8;
 }
