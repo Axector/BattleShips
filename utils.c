@@ -5,24 +5,16 @@
 #include <arpa/inet.h>
 #include "utils.h"
 
-/////////////////////////////////////// TEMP ///////////////////////////////////
-
-void printArray(uint8_t *array, uint32_t size)
-{
-    for (uint32_t i = 0; i < size; i++) {
-        printf("%x ", array[i]);
-    }
-    printf("\n");
-}
-
 //////////////////////////////////// Utils /////////////////////////////////////
 
+// Check if system is little-endian
 char isLittleEndianSystem()
 {
     volatile uint32_t i = 0x01234567;
     return (*((uint8_t*)(&i))) == 0x67;
 }
 
+// Find player by its id from an array of all players
 struct Player* findPlayerById(struct Player* players, uint8_t id)
 {
     for (int i = 0; i < MAX_PLAYERS; i++) {
@@ -33,6 +25,7 @@ struct Player* findPlayerById(struct Player* players, uint8_t id)
     return NULL;
 }
 
+// Find ship by its id and team id from an array of all ships
 struct Ship* findShipByIdAndTeamId(struct Ship* ships, uint8_t type, uint8_t team_id)
 {
     for (int i = 0; i < MAX_SHIPS; i++) {
@@ -43,6 +36,7 @@ struct Ship* findShipByIdAndTeamId(struct Ship* ships, uint8_t type, uint8_t tea
     return NULL;
 }
 
+// Get predefined ship statistics by its id
 void getShipData(uint8_t type, uint8_t *speed, uint16_t *range, uint8_t *is_dir)
 {
     if (type == 1) {
@@ -74,8 +68,10 @@ void getShipData(uint8_t type, uint8_t *speed, uint16_t *range, uint8_t *is_dir)
 
 ////////////////////// Package preparation and unpacking ///////////////////////
 
+// Add npk, package size, type, checksum to the package, apply escaping on it and add separators
 uint8_t* preparePackage(uint32_t npk, uint8_t type, uint8_t *content, uint32_t *content_size, uint32_t content_max_size, char is_little_endian)
 {
+    // Default package structure
     struct CurrentPackage {
         uint16_t separator;
         uint32_t npk;
@@ -86,10 +82,12 @@ uint8_t* preparePackage(uint32_t npk, uint8_t type, uint8_t *content, uint32_t *
         uint16_t separator_end;
     };
 
+    // Get memory for new package and fill it with needed data
     uint8_t *message = malloc(MAX_PACKAGE_SIZE);
     memset(message, 0, MAX_PACKAGE_SIZE);
     struct CurrentPackage* msg = (struct CurrentPackage*) (message - 2);
     msg->separator = 0;
+    // If system is little-endian we should change numbers to be saved as in big-endian system
     msg->npk = (is_little_endian) ? htonl(npk) : npk;
     msg->size = (is_little_endian) ? htonl(*content_size) : *content_size;
     msg->type = type;
@@ -99,6 +97,7 @@ uint8_t* preparePackage(uint32_t npk, uint8_t type, uint8_t *content, uint32_t *
     msg->checksum = 0;
     msg->separator_end = 0;
 
+    // Calculate message size
     uint32_t msg_size = (
         sizeof(uint16_t) +
         sizeof(uint32_t) +
@@ -109,10 +108,13 @@ uint8_t* preparePackage(uint32_t npk, uint8_t type, uint8_t *content, uint32_t *
         sizeof(uint16_t)
     );
 
+    // Calculate checksum
     msg->checksum = calculatePackageChecksum(message, msg_size - 2);
 
+    // Apply escaping on package, 0 = 1 1, 1 = 1 2
     escapePackage(message, &msg_size);
 
+    // Create new package with correct size and free the old one
     uint8_t *package = malloc(msg_size);
     for (int i = 0; i < msg_size; i++) {
         package[i] = message[i];
@@ -122,12 +124,14 @@ uint8_t* preparePackage(uint32_t npk, uint8_t type, uint8_t *content, uint32_t *
     return package;
 }
 
+// Apply escaping on package
 void escapePackage(uint8_t *msg, uint32_t *msg_size)
 {
     uint32_t msg_len = *msg_size;
     uint8_t escaped_msg[msg_len * 2];
     int escaped_msg_size = 0;
 
+    // For each 0 we add 1 1, but for each 1 we add 1 2
     for (int i = 0; i < msg_len; i++) {
         if (i >= 2 && i < msg_len - 2) {
             if (msg[i] == 0) {
@@ -144,6 +148,7 @@ void escapePackage(uint8_t *msg, uint32_t *msg_size)
             }
         }
 
+        // Do not change other bytes
         escaped_msg[escaped_msg_size++] = msg[i];
     }
 
@@ -153,10 +158,12 @@ void escapePackage(uint8_t *msg, uint32_t *msg_size)
     }
 }
 
+// remove separator while unpacking
 char removePackageSeparator(uint8_t *msg, uint32_t *msg_size)
 {
     uint32_t msg_len = *msg_size;
 
+    // If separator is incorrect pass the package
     if (
         msg[0] != 0 ||
         msg[1] != 0 ||
@@ -166,6 +173,7 @@ char removePackageSeparator(uint8_t *msg, uint32_t *msg_size)
         return -1;
     }
 
+    // The correct separators are 4 zeros
     msg_len -= 4;
 
     *msg_size = msg_len;
@@ -176,12 +184,14 @@ char removePackageSeparator(uint8_t *msg, uint32_t *msg_size)
     return 0;
 }
 
+// Unescape package
 void unescapePackage(uint8_t *msg, uint32_t *msg_size)
 {
     uint32_t msg_len = *msg_size;
     uint8_t unescaped[msg_len];
     int unescaped_len = 0;
 
+    // Every 1 1 combination replace with 0 and every 1 2 combination replace with 1
     for (int i = 0; i < msg_len; i++) {
         if (i + 1 < msg_len) {
             if ((msg[i] == 1 && msg[i + 1] == 1)) {
@@ -196,6 +206,7 @@ void unescapePackage(uint8_t *msg, uint32_t *msg_size)
             }
         }
 
+        // Do not change other bytes
         unescaped[unescaped_len++] = msg[i];
     }
 
@@ -205,6 +216,7 @@ void unescapePackage(uint8_t *msg, uint32_t *msg_size)
     }
 }
 
+// Remove separators, unescape package, check checksum and npk
 char unpackPackage(uint8_t *msg, uint32_t msg_size, uint32_t npk, char is_little_endian)
 {
     if (removePackageSeparator(msg, &msg_size) == -1) {
@@ -227,23 +239,27 @@ char unpackPackage(uint8_t *msg, uint32_t msg_size, uint32_t npk, char is_little
 
 /////////////////////////////////////// Package INFO ///////////////////////////////////////
 
+// Get npk of package
 uint32_t getPackageNPK(uint8_t *msg, char is_little_endian)
 {
     uint32_t res = *((uint32_t*) msg);
     return (is_little_endian) ? ntohl(res) : res;
 }
 
+// Get package type
 uint8_t getPackageType(uint8_t *msg)
 {
     return *((uint8_t*) (msg + sizeof(uint32_t) * 2));
 }
 
+// Get package content size
 uint32_t getPackageContentSize(uint8_t *msg, char is_little_endian)
 {
     uint32_t res = *((uint32_t*) (msg + sizeof(uint32_t)));
     return (is_little_endian) ? ntohl(res) : res;
 }
 
+// Get package contents
 uint8_t* getPackageContent(uint8_t *msg, uint32_t content_size)
 {
     int msg_beginning = sizeof(uint32_t) * 2 + sizeof(uint8_t);
@@ -253,6 +269,7 @@ uint8_t* getPackageContent(uint8_t *msg, uint32_t content_size)
     return msg;
 }
 
+// Calculate package checksum
 uint8_t calculatePackageChecksum(uint8_t *msg, size_t msg_size)
 {
     uint8_t checksum = 0;
@@ -263,6 +280,7 @@ uint8_t calculatePackageChecksum(uint8_t *msg, size_t msg_size)
     return checksum;
 }
 
+// Get package checksum
 uint8_t getPackageChecksum(uint8_t *msg, size_t msg_size)
 {
     return msg[msg_size - 1];
