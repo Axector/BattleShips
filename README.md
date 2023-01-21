@@ -1,7 +1,6 @@
-README
 Authors:
-Daniils Leščišins - worked on server side, client side and their communication
-Rihards Dāvids - worked on visual part
+- Daniils Leščišins - worked on server side, client side and their communication
+- Rihards Dāvids - worked on visual part
 
 There is all information you need to run this project. (Linux)
 
