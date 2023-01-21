@@ -1,34 +1,33 @@
 README
-Projektu veidoja:
-Daniils Leščišins DL19044 - veidoja serveri un visu tā sadarbību ar klientu, kā arī daudz palīdzēja Rihardam
-Rihards Dāvids RD19020 - veidoja klientu, ka arī gandrīz visu vizuālo daļu
+Authors:
+Daniils Leščišins - worked on server side, client side and their communication
+Rihards Dāvids - worked on visual part
 
-Projekts:
-Zemāk norādīta visa informācija, lai palaistu projektu.
+There is all information you need to run this project. (Linux)
 
-Vajadzīgās bibliotēkas:
-- glut, to var instalēt ar komandu - sudo apt-get install freeglut3-dev
+Needed libraries:
+- glut        - sudo apt install freeglut3-dev
 
-Kā arī vajadzīgs XLaunch priekš palaišanas uz Windows, izmantojot WSL, iespējams, ka nepieciešams palaišanas brīdī atzīmēt - "Disable access control".
+Using WSL it is necessary to download XLaunch and tick "Disable access control"
 
-Komandas, lai palaistu programmu:
+Commands to run the program:
 
-(ar make)
-- servera kompilēšana un sākšana
+(using make)
+- server compilation and run
     make server
 
-- klienta kompilēšana un palaišana
+- client compilation and run
     make client
 
-(bez make)
-- servera kompilēšana
+(without make)
+- server compilation
     gcc server.c utils.c -Wall -o server -lm
 
-- klienta kompilēšana
+- client compilation
     gcc client.c utils.c -Wall -o client -lglut -lGL -lGLEW
 
-- server sākšāna
+- server launch
     ./server
 
-- klienta palaišana
+- client launch
     ./client
